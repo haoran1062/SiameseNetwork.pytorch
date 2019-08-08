@@ -53,63 +53,51 @@ data_transforms = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
-    data_len = len(img_list)
-    if batch_size < data_len:
-        st_iter = 0
-        batch_size = data_len
-    elif st_iter + batch_size > len(img_list):
-        st_iter = len(img_list) - batch_size
-
-    batch_img = []
-    for now_path in img_list[st_iter:st_iter+batch_size]:
-        img = cv2.imread(now_path)
-        t_img = data_transforms(img).unsqueeze(0)
-        batch_img.append(t_img)
-    st_iter += batch_size
-    return torch.cat(batch_img, 0), st_iter
-
-
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
     in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
+    offline_bpath = 'offline_features/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
-    # file_list = glob(in_bpath + '*/*.jpg')
-    folder_list = os.listdir(in_bpath)
-    
-    out_bpath = 'offline_features/'
-    if not os.path.exists(out_bpath):
-        os.makedirs(out_bpath)
+    file_list = glob(in_bpath + '*/*.jpg')
+    f_len = len(file_list)
+    device = 'cuda:0'
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
-    batch_size = 128
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)
-    
+
     with torch.no_grad():
-        
-        for now_folder_name in tqdm(folder_list):
-            now_iter = 0
-            total_feature_list = []
-            file_list = glob(in_bpath + now_folder_name + '/*.jpg')
-            f_len = len(file_list)
-            while now_iter < f_len:
-                img_a, now_iter = get_batch_imgs(data_transforms, file_list, now_iter, batch_size)
-                img_b, now_iter = get_batch_imgs(data_transforms, file_list, now_iter, batch_size)
+        for now_file in tqdm(file_list):
+            
+            label_a = get_label_from_path(now_file)
+            img_a = cv2.imread(now_file)
 
-                ta = time.clock()
-                softmax_a, softmax_b = net(img_a, img_b)
-                tb = time.clock()
+            t_img_a = data_transforms(img_a).unsqueeze(0)
+            t_img_b = torch.from_numpy(np.load('%s%d.npy'%(offline_bpath, label_a))).to(device)
 
-                total_feature_list.append(softmax_a)
-                total_feature_list.append(softmax_b)
+            # t_img_a = torch.cat([t_img_a]*len(t_img_b), 0)
+            
+            
 
-            total_features = torch.cat(total_feature_list, 0)
-            np_total_features = total_features.cpu().numpy()
-            now_save_path = out_bpath + '%s.npy'%(now_folder_name)
-            np.save(now_save_path, np_total_features)
+            ta = time.clock()
+            softmax_a, _ = net( t_img_a, t_img_a)
+            
+            softmax_a = torch.cat([softmax_a]*len(t_img_b), 0)
+            tb = time.clock()
+            print(tb - ta)
+            # print(softmax_a.shape, softmax_b.shape)
+
+            distance = F.pairwise_distance(softmax_a, t_img_b, p=2).detach().to('cpu').numpy()[0]
+            cosin_dist = F.cosine_similarity(softmax_a, t_img_b, dim=-1).to('cpu').numpy()[0]
+            print('a img label : %d\t distance : %.2f\t cosine distance: %2f'%(label_a, distance, cosin_dist))
+            
+            cv2.imshow('a img', img_a)
+            # cv2.imshow('b img', img_b)
+            if cv2.waitKey(10000)&0xFF == ord('q'):
+                break
+
         
 

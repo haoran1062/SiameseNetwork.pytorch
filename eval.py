@@ -55,7 +55,7 @@ data_transforms = transforms.Compose([
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
-    in_bpath = '/data/results/temp/classify_instance/201908/done/0807_cls_all/'
+    in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
     f_len = len(file_list)

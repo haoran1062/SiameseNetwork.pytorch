@@ -26,6 +26,7 @@ class SiameseNetwork(nn.Module):
         else:
             print('backbone not supported!')
             exit()
+        
 
         return model_ft
 

@@ -52,6 +52,12 @@ data_transforms = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
+def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
+    if st_iter + batch_size > len(img_list):
+        st_iter = len(img_list) - batch_size
+    # for now_path in 
+    pass
+
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
@@ -60,11 +66,14 @@ if __name__ == "__main__":
     file_list = glob(in_bpath + '*/*.jpg')
     f_len = len(file_list)
 
+    out_bpath = 'offline_features/'
+
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)
+    now_iter = 0
 
     with torch.no_grad():
         while True:
@@ -86,6 +95,7 @@ if __name__ == "__main__":
 
             t_img_a = data_transforms(img_a).unsqueeze(0)
             t_img_b = data_transforms(img_b).unsqueeze(0)
+            # print(t_img_a.shape)
 
             t_img_a = torch.cat([t_img_a]*10, 0)
             t_img_b = torch.cat([t_img_b]*10, 0)

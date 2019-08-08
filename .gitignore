@@ -1,3 +1,4 @@
 saved_models/*
 *.log
 *.pth
+offline_features/*

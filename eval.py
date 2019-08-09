@@ -54,8 +54,8 @@ data_transforms = transforms.Compose([
 
 if __name__ == "__main__":
     
-    # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
-    in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
+    in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
+    # in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
     f_len = len(file_list)
@@ -91,9 +91,14 @@ if __name__ == "__main__":
             t_img_b = torch.cat([t_img_b]*10, 0)
 
             ta = time.clock()
-            softmax_a, softmax_b = net( t_img_a, t_img_b)
+            softmax_a, softmax_b = net(t_img_a, t_img_b)
             tb = time.clock()
             print(tb - ta)
+
+            pred = F.softmax(softmax_a, 1)[0]
+            print(pred)
+            print(pred.argmax(), pred[pred.argmax()])
+            
             # print(softmax_a.shape, softmax_b.shape)
 
             distance = F.pairwise_distance(softmax_a, softmax_b).detach().to('cpu').numpy()[0]

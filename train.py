@@ -39,14 +39,15 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
     since = time.time()
     
     # cosin_lr = lr_scheduler.CosineAnnealingLR(optimizer, T_max=(num_epochs // 10)+1)
-    # adjust_lr = lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.8, verbose=1, patience=2)
+    adjust_lr = lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.8, verbose=1, patience=2)
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
 
     for epoch in range(epoch_start, num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
-
+        
+        acc_map = {}
         # cosin_lr.step(epoch)
         my_vis.plot('lr', optimizer.param_groups[0]['lr'])
 
@@ -87,37 +88,84 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                     #   mode we calculate the loss by summing the final output and the auxiliary output
                     #   but in testing we only consider the final output.
                     
-                    output1, output2 = model(img1, img2)
+                    feature1, output1, feature2, output2 = model(img1, img2)
+                    _, preds1 = torch.max(output1, 1)
+                    _, preds2 = torch.max(output2, 1)
                     
-                    sim_loss, softmax_loss1, softmax_loss2 = criterion(output1, output2, label1, label2, sim_labels)
-                    now_total_loss = sim_loss + softmax_loss1 + softmax_loss2
+                    sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                    now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 # sim_loss + 
 
                     # backward + optimize only if in training phase
                     if phase == 'train':
                         now_total_loss.backward()
+                        # softmax_loss1.backward()
+                        # sim_loss.backward(retain_graph=True)
+                        # softmax_loss1.backward(retain_graph=True)
+                        # softmax_loss2.backward(retain_graph=True)
                         optimizer.step()
                 
 
                 # statistics
-                now_loss = now_total_loss.item() * img1.size(0)
+                now_loss = now_total_loss.item() # * img1.size(0)
                 running_loss += now_loss
+                
+                now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data)
+                # print(now_correct)
+                running_corrects += now_correct
+
+                if phase == 'test':
+                    p_l = preds1.data.tolist()
+                    gt_l = label1.data.tolist()
+                    for tij in range(len(p_l)):
+                        t_gt = gt_l[tij]
+                        if t_gt not in acc_map.keys():
+                            acc_map[t_gt] = [0, 0]
+                        if t_gt == p_l[tij]:
+                            acc_map[t_gt][0] += 1
+                        else:
+                            acc_map[t_gt][1] += 1
+                    
+
 
                 ed = time.clock()
                 it_cost_time = ed - st
                 
                 if it % 10 == 0:
                     # convert_show_cls_bar_data(acc_map, rename_map=rename_map)
+                    now_acc = float(now_correct) / (len(preds1)*2.0)
+
                     if phase == 'train':
-                        logger.info('Epoch [{}/{}], Iter [{}/{}] expect end in {:4f} min.  average_loss: {:2f}'.format(
-                            epoch, int(num_epochs), it, len(dataloaders[phase]), it_cost_time * (len(dataloaders[phase]) - it+1) / 60, running_loss / (it+1) ) )
+                        logger.info('Epoch [{}/{}], Iter [{}/{}] expect end in {:4f} min.  average_loss: {:2f}, acc: {:2f}'.format(
+                            epoch, 
+                            int(num_epochs),
+                            it, 
+                            len(dataloaders[phase]), 
+                            it_cost_time * (len(dataloaders[phase]) - it+1) / 60, 
+                            running_loss / (it+1),
+                            now_acc ) )
 
                     img_1 = tensor2img(img1, normal=True)
-                    vis.img('target img', img_1)
+                    vis.img('pred1 img', img_1)
+                    if id_name_map:
+                        show_id = preds1.to('cpu').numpy()[0]
+                        if show_id in id_name_map.keys():
+                            show_id = id_name_map[show_id]
+                        vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id))
+                    else:
+                        vis.img('pred1 result', get_show_result_img(label1.to('cpu').numpy()[0], preds1.to('cpu').numpy()[0]))
 
                     img_2 = tensor2img(img2, normal=True)
-                    vis.img('cmp img', img_2)
+                    vis.img('pred2 img', img_2)
+                    if id_name_map:
+                        show_id = preds2.to('cpu').numpy()[0]
+                        if show_id in id_name_map.keys():
+                            show_id = id_name_map[show_id]
+                        vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id))
+                    else:
+                        vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0]))
                     
-                    vis.img('pred result', get_show_result_img(sim_labels.to('cpu').numpy()[0], F.pairwise_distance(output1, output2).detach().to('cpu').numpy()[0]))
+                    # print(feature1.shape)
+                    vis.img('like result', get_show_result_img(sim_labels.to('cpu').numpy()[0], F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
 
                 if it % save_step == 0 and phase == 'train':
                     if not os.path.exists('%s'%(save_base_path)):
@@ -131,14 +179,20 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                     break
 
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
+            epoch_acc = running_corrects.double() / (len(dataloaders[phase].dataset) * 2)
 
-            # adjust_lr.step(epoch_loss)
+            adjust_lr.step(epoch_loss)
 
             if phase == 'train':
                 my_vis.plot('train loss', epoch_loss)
+                my_vis.plot('train acc', epoch_acc.item())
 
             elif phase == 'test':
                 my_vis.plot('test loss', epoch_loss)
+                my_vis.plot('test acc', epoch_acc.item())
+
+                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, rename_map=rename_map)
+                my_vis.multi_cls_bar('every class Acc', acc_x, leg_l, name_l)
 
 
             # deep copy the model
@@ -212,9 +266,9 @@ if __name__ == "__main__":
     my_vis = Visual(train_cfg.model_bpath, log_to_file=train_cfg.vis_log)   
 
     # Observe that all parameters are being optimized
-    # optimizer_ft = optim.SGD(model_p.parameters(), lr=0.1 * train_cfg.batch_size / 256.0, momentum=0.9)
+    optimizer_ft = optim.SGD(model_p.parameters(), lr=0.1 * train_cfg.batch_size / 256.0, momentum=0.9)
     # optimizer_ft = optim.RMSprop(params_to_update, momentum=0.9)
-    optimizer_ft = optim.Adam(model_p.parameters(), lr=1e-2, eps=1e-8, betas=(0.9, 0.99), weight_decay=0.)
+    # optimizer_ft = optim.Adam(model_p.parameters(), lr=1e-2, eps=1e-8, betas=(0.9, 0.99), weight_decay=0.)
     # optimizer_ft = optim.Adadelta(params_to_update, lr=1)
 
     # Setup the loss fxn

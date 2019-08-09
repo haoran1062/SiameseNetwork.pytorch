@@ -204,10 +204,10 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+        feature_map = torch.flatten(x, 1)
+        x = self.fc(feature_map)
 
-        return x
+        return feature_map, x
 
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):

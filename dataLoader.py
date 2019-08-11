@@ -82,11 +82,14 @@ class ClassifyDataset(data.Dataset):
         return self.name_id_map[t_str]
     
     def get_img_from_path(self, in_path):
-        if self.read_mode == 'cv2':
-            img = cv2.imread(in_path)
-        elif self.read_mode == 'jpeg4py':
-            img = jpeg.JPEG(in_path).decode()
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        try:
+            if self.read_mode == 'cv2':
+                img = cv2.imread(in_path)
+            elif self.read_mode == 'jpeg4py':
+                img = jpeg.JPEG(in_path).decode()
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            print(in_path + ' img error!!!')
         return img
 
     def __getitem__(self,idx):

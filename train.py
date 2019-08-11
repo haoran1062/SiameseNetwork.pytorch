@@ -147,22 +147,32 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                     img_1 = tensor2img(img1, normal=True)
                     vis.img('pred1 img', img_1)
                     if id_name_map:
-                        show_id = preds1.to('cpu').numpy()[0]
+                        t_pred = F.softmax(output1, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+
+                        # show_id = preds1.to('cpu').numpy()[0]
+                        # conf = output1[0][show_id].cpu().item()
                         if show_id in id_name_map.keys():
                             show_id = id_name_map[show_id]
-                        vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id))
+                        vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id, conf))
                     else:
-                        vis.img('pred1 result', get_show_result_img(label1.to('cpu').numpy()[0], preds1.to('cpu').numpy()[0]))
+                        vis.img('pred1 result', get_show_result_img(label1.to('cpu').numpy()[0], preds1.to('cpu').numpy()[0], conf))
 
                     img_2 = tensor2img(img2, normal=True)
                     vis.img('pred2 img', img_2)
                     if id_name_map:
-                        show_id = preds2.to('cpu').numpy()[0]
+                        t_pred = F.softmax(output2, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+
+                        # show_id = preds2.to('cpu').numpy()[0]
+                        # conf = output2[0][show_id].cpu().item()
                         if show_id in id_name_map.keys():
                             show_id = id_name_map[show_id]
-                        vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id))
+                        vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id, conf))
                     else:
-                        vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0]))
+                        vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0], conf))
                     
                     # print(feature1.shape)
                     vis.img('like result', get_show_result_img(sim_labels.to('cpu').numpy()[0], F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
@@ -191,14 +201,15 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                 my_vis.plot('test loss', epoch_loss)
                 my_vis.plot('test acc', epoch_acc.item())
 
-                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, rename_map=rename_map)
+                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/meanAcc.txt', rename_map=rename_map)
                 my_vis.multi_cls_bar('every class Acc', acc_x, leg_l, name_l)
 
 
             # deep copy the model
-            if phase == 'test' and epoch_loss > best_acc:
+            if phase == 'test' and epoch_acc > best_acc:
                 best_model_wts = copy.deepcopy(model.state_dict())
-                best_acc = epoch_loss
+                best_acc = epoch_acc
+                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/best_meanAcc.txt', rename_map=rename_map)
             if phase == 'test':
                 pass
 
@@ -266,7 +277,7 @@ if __name__ == "__main__":
     my_vis = Visual(train_cfg.model_bpath, log_to_file=train_cfg.vis_log)   
 
     # Observe that all parameters are being optimized
-    optimizer_ft = optim.SGD(model_p.parameters(), lr=0.1 * train_cfg.batch_size / 256.0, momentum=0.9)
+    optimizer_ft = optim.SGD(model_p.parameters(), lr=0.1 * train_cfg.batch_size * 2 / 256.0, momentum=0.9)
     # optimizer_ft = optim.RMSprop(params_to_update, momentum=0.9)
     # optimizer_ft = optim.Adam(model_p.parameters(), lr=1e-2, eps=1e-8, betas=(0.9, 0.99), weight_decay=0.)
     # optimizer_ft = optim.Adadelta(params_to_update, lr=1)
@@ -276,9 +287,9 @@ if __name__ == "__main__":
     criterion = ContrastiveLoss()
 
     dataloaders = {}
-    train_dataset = ClassifyDataset(base_data_path=train_cfg.train_datasets_bpath, train=True, transform = data_transforms['train'], id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
+    train_dataset = ClassifyDataset(base_data_path=train_cfg.train_datasets_bpath, train=True, transform = data_transforms['train'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
     train_loader = DataLoader(train_dataset,batch_size=train_cfg.batch_size, shuffle=True, num_workers=train_cfg.worker_numbers, pin_memory=True)
-    test_dataset = ClassifyDataset(base_data_path=train_cfg.test_datasets_bpath, train=False,transform = data_transforms['val'], id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
+    test_dataset = ClassifyDataset(base_data_path=train_cfg.test_datasets_bpath, train=False,transform = data_transforms['val'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
     test_loader = DataLoader(test_dataset,batch_size=train_cfg.batch_size,shuffle=True, num_workers=train_cfg.worker_numbers, pin_memory=True)
     id_name_map = train_dataset.id_name_map
     data_len = int(len(test_dataset) / train_cfg.batch_size)

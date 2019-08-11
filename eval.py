@@ -54,7 +54,7 @@ data_transforms = transforms.Compose([
 
 if __name__ == "__main__":
     
-    in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
+    in_bpath = '/data/datasets/classify_data/checkout_cls_data/truth_data/201906-0807_all/all/'
     # in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
@@ -87,22 +87,29 @@ if __name__ == "__main__":
             t_img_a = data_transforms(img_a).unsqueeze(0)
             t_img_b = data_transforms(img_b).unsqueeze(0)
 
-            t_img_a = torch.cat([t_img_a]*10, 0)
-            t_img_b = torch.cat([t_img_b]*10, 0)
+            # t_img_a = torch.cat([t_img_a]*10, 0)
+            # t_img_b = torch.cat([t_img_b]*10, 0)
 
             ta = time.clock()
-            softmax_a, softmax_b = net(t_img_a, t_img_b)
+            feature_a, softmax_a, feature_b, softmax_b = net(t_img_a, t_img_b)
             tb = time.clock()
             print(tb - ta)
 
             pred = F.softmax(softmax_a, 1)[0]
-            print(pred)
-            print(pred.argmax(), pred[pred.argmax()])
+            # print(pred.shape)
+            p_a_cls = id_name_map[pred.argmax().cpu().item()]
+            p_a_conf = pred[pred.argmax()].cpu().item()
+
+            pred = F.softmax(softmax_b, 1)[0]
+            # print(pred.shape)
+            p_b_cls = id_name_map[pred.argmax().cpu().item()]
+            p_b_conf = pred[pred.argmax()].cpu().item()
             
             # print(softmax_a.shape, softmax_b.shape)
 
-            distance = F.pairwise_distance(softmax_a, softmax_b).detach().to('cpu').numpy()[0]
-            print('a img label : %d\t b img label : %d\t distance : %.2f'%(label_a, label_b, distance))
+            distance = F.pairwise_distance(feature_a[0].unsqueeze(0), feature_b[0].unsqueeze(0)).detach().to('cpu').numpy()[0]
+            # print('a img label : %d\t b img label : %d\t distance : %.2f'%(label_a, label_b, distance))
+            print('a gt label/pred a label : %d/%s\tconfidence: %.2f\t b gt label/b img label : %d/%s\tconfidence: %.2f\tdistance : %.2f'%(label_a, p_a_cls, p_a_conf, label_b, p_b_cls, p_b_conf, distance))
             # print('a img pred : %d\t b img pred : %d'%(pred_a, pred_b))
             
             cv2.imshow('a img', img_a)

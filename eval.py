@@ -55,6 +55,7 @@ data_transforms = transforms.Compose([
 if __name__ == "__main__":
     
     in_bpath = '/data/datasets/classify_data/checkout_cls_data/truth_data/201906-0807_all/all/'
+    in_bpath = '/data/results/temp/classify_instance/201908/done/0808_cls_all/'
     # in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
@@ -111,6 +112,13 @@ if __name__ == "__main__":
             # print('a img label : %d\t b img label : %d\t distance : %.2f'%(label_a, label_b, distance))
             print('a gt label/pred a label : %d/%s\tconfidence: %.2f\t b gt label/b img label : %d/%s\tconfidence: %.2f\tdistance : %.2f'%(label_a, p_a_cls, p_a_conf, label_b, p_b_cls, p_b_conf, distance))
             # print('a img pred : %d\t b img pred : %d'%(pred_a, pred_b))
+
+            feature_a, softmax_a = net(t_img_a)
+            pred = F.softmax(softmax_a, 1)[0]
+            # print(pred.shape)
+            p_a_cls = id_name_map[pred.argmax().cpu().item()]
+            p_a_conf = pred[pred.argmax()].cpu().item()
+            print(p_a_cls, p_a_conf)
             
             cv2.imshow('a img', img_a)
             cv2.imshow('b img', img_b)

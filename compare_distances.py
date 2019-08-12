@@ -57,6 +57,8 @@ if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
     in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
+    in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
+    in_bpath = '/data/results/temp/classify_instance/201908/done/0806_cls_all/'
     offline_bpath = 'offline_features/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
@@ -76,6 +78,8 @@ if __name__ == "__main__":
             img_a = cv2.imread(now_file)
 
             t_img_a = data_transforms(img_a).unsqueeze(0)
+            if not os.path.exists('%s%d.npy'%(offline_bpath, label_a)):
+                continue
             t_img_b = torch.from_numpy(np.load('%s%d.npy'%(offline_bpath, label_a))).to(device)
 
             # t_img_a = torch.cat([t_img_a]*len(t_img_b), 0)
@@ -83,16 +87,20 @@ if __name__ == "__main__":
             
 
             ta = time.clock()
-            softmax_a, _ = net( t_img_a, t_img_a)
+            feature_a, softmax_a = net(t_img_a)
+
+            pred = F.softmax(softmax_a, 1)[0]
+            p_b_cls = id_name_map[pred.argmax().cpu().item()]
+            p_b_conf = pred[pred.argmax()].cpu().item()
             
-            softmax_a = torch.cat([softmax_a]*len(t_img_b), 0)
+            feature_a = torch.cat([feature_a]*len(t_img_b), 0)
             tb = time.clock()
             print(tb - ta)
             # print(softmax_a.shape, softmax_b.shape)
 
-            distance = F.pairwise_distance(softmax_a, t_img_b, p=2).detach().to('cpu').numpy()[0]
-            cosin_dist = F.cosine_similarity(softmax_a, t_img_b, dim=-1).to('cpu').numpy()[0]
-            print('a img label : %d\t distance : %.2f\t cosine distance: %2f'%(label_a, distance, cosin_dist))
+            distance = F.pairwise_distance(feature_a, t_img_b, p=2).detach().to('cpu').numpy()[0]
+            cosin_dist = F.cosine_similarity(feature_a, t_img_b, dim=-1).to('cpu').numpy()[0]
+            print('a img label : %d\tpred : %s\t confidence : %.2f\t distance : %.2f\t cosine distance: %2f'%(label_a, p_b_cls, p_b_conf, distance, cosin_dist))
             
             cv2.imshow('a img', img_a)
             # cv2.imshow('b img', img_b)

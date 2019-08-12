@@ -55,7 +55,7 @@ data_transforms = transforms.Compose([
 
 def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
     data_len = len(img_list)
-    if batch_size < data_len:
+    if batch_size > data_len:
         st_iter = 0
         batch_size = data_len
     elif st_iter + batch_size > len(img_list):
@@ -70,13 +70,20 @@ def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
     return torch.cat(batch_img, 0), st_iter
 
 
+
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
-    in_bpath = '/data/datasets/classify_data/checkout_cls_data/truth_data/201906-0807_all/all/'
+    in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
+    in_bpath_list = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all/', '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0808/UE4_cls_0808/all/']
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     # file_list = glob(in_bpath + '*/*.jpg')
-    folder_list = os.listdir(in_bpath)
+    # folder_list = os.listdir(in_bpath)
+    # folder_list = []
+    folder_set = set()
+    for i in in_bpath_list:
+        folder_set = folder_set | set(os.listdir(i))
+    folder_list = list(folder_set)
     
     out_bpath = 'offline_features/'
     if not os.path.exists(out_bpath):
@@ -84,29 +91,35 @@ if __name__ == "__main__":
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
-    batch_size = 32
+    batch_size = 256
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)
     
     with torch.no_grad():
         
-        for now_folder_name in tqdm(folder_list):
+        for now_folder_name in tqdm(folder_list[1:]):
             now_iter = 0
             total_feature_list = []
-            file_list = glob(in_bpath + now_folder_name + '/*.jpg')
+            file_list = []
+            for now_bpath in in_bpath_list:
+                file_list += glob(now_bpath + now_folder_name + '/*.jpg')
+            # file_list = glob(in_bpath + now_folder_name + '/*.jpg')
             f_len = len(file_list)
             while now_iter < f_len:
+                # print(now_iter, f_len)
                 img_a, now_iter = get_batch_imgs(data_transforms, file_list, now_iter, batch_size)
-                img_b, now_iter = get_batch_imgs(data_transforms, file_list, now_iter, batch_size)
+                # print(img_a.shape)
+                # img_b, now_iter = get_batch_imgs(data_transforms, file_list, now_iter, batch_size)
 
                 ta = time.clock()
-                feature_a, softmax_a, feature_b, softmax_b = net(img_a, img_b)
+                # feature_a, softmax_a, feature_b, softmax_b = net(img_a, img_b)
+                feature_a, softmax_a = net(img_a)
                 tb = time.clock()
-
-                total_feature_list.append(feature_a.cpu())
-                total_feature_list.append(feature_b.cpu())
-                print(len(total_feature_list))
+                # print(feature_a.shape)
+                total_feature_list.append(feature_a.to('cpu'))
+                # total_feature_list.append(feature_b.cpu())
+                # print(len(total_feature_list))
 
             total_features = torch.cat(total_feature_list, 0)
             np_total_features = total_features.numpy()

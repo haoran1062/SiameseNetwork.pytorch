@@ -8,10 +8,10 @@ class Config(object):
     feature_extract = False
     use_pre_train = False
     input_3x3 = True
-    resume_from_path = '/data/haoran/t/se_resnext50_224_0810/best.pth'
+    resume_from_path = '/data/train_models/classify_models/siamese_models/se_resnext50_512_0814/se_resnext50_512_0814/best.pth'
     resume_epoch = 0
     epoch_num = 500
-    model_bpath = '/data/haoran/t/se_resnext50_224_0810'
+    model_bpath = '/data/train_models/classify_models/siamese_models/se_resnext50_512_0814/se_resnext50_512_0814'
     id_name_txt = model_bpath + '/id.txt'
 
     gpu_ids = [0]

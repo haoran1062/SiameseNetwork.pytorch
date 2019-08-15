@@ -22,12 +22,31 @@ from ContrastiveLoss import ContrastiveLoss
 from train_config import Config
 import torch.nn.functional as F
 
+try:
+    from apex.parallel import DistributedDataParallel as DDP
+    from apex.fp16_utils import *
+    from apex import amp, optimizers
+    from apex.multi_tensor_apply import multi_tensor_applier
+    fp16_using = True
+    print("\nCUDNN VERSION: {}\n".format(torch.backends.cudnn.version()))
+
+except ImportError:
+    raise ImportError("Please install apex from https://www.github.com/nvidia/apex to run this example.")
+    fp16_using = False
+
+train_cfg = Config()
+
+if fp16_using:
+    fp16_using = train_cfg.fp16_using
+print('using FP16 Mixed : ', fp16_using)
+    
+
 parser = argparse.ArgumentParser(
     description='Simaese Network Training params')
 
 args = parser.parse_args()
 
-train_cfg = Config()
+
 if not os.path.exists(train_cfg.model_bpath):
     os.makedirs(train_cfg.model_bpath)
 
@@ -97,7 +116,11 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
 
                     # backward + optimize only if in training phase
                     if phase == 'train':
-                        now_total_loss.backward()
+                        if fp16_using:
+                            with amp.scale_loss(now_total_loss, optimizer) as bp_loss:
+                                bp_loss.backward()
+                        else:
+                            now_total_loss.backward()
                         # softmax_loss1.backward()
                         # sim_loss.backward(retain_graph=True)
                         # softmax_loss1.backward(retain_graph=True)
@@ -124,8 +147,6 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                             acc_map[t_gt][0] += 1
                         else:
                             acc_map[t_gt][1] += 1
-                    
-
 
                 ed = time.clock()
                 it_cost_time = ed - st
@@ -180,7 +201,8 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                 if it % save_step == 0 and phase == 'train':
                     if not os.path.exists('%s'%(save_base_path)):
                         os.mkdir('%s'%(save_base_path))
-                    torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
+                    save_checkpoint(model, optimizer, epoch, '%s/epoch_%d.pth'%(save_base_path, epoch))
+                    # torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
                 
                 data = prefetcher.next()
                 it += 1
@@ -217,7 +239,21 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
     logger.info('finish training using %.2fs'%(time_elapsed))
     # load best model weights
     model.load_state_dict(best_model_wts)
-    torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
+    # torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
+    save_checkpoint(model, optimizer, epoch, '%s/best.pth'%(save_base_path))
+
+def save_checkpoint(model, optimizer, epoch, save_path):
+    state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch':epoch}
+    torch.save(state, save_path)
+
+
+def load_checkpoint(model, optimizer, load_path):
+    checkpoint = torch.load(load_path)
+    model.load_state_dict(checkpoint['net'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    start_epoch = checkpoint['epoch'] + 1
+    return model, optimizer, start_epoch
+    
 
 
 
@@ -252,13 +288,17 @@ if __name__ == "__main__":
     }
 
     # Initialize the model for this run
-    model_ft = SiameseNetwork(train_cfg)
-    
+    model_ft = SiameseNetwork(train_cfg).to(device)
+    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 2 / 256.0, momentum=0.9)
+    if fp16_using:
+        model_ft, optimizer_ft = amp.initialize(model_ft, optimizer_ft, opt_level='O1', loss_scale=128.0)
     # model_ft.load_state_dict(torch.load(config_map['resume_from_path']))
-    model_p = nn.DataParallel(model_ft.to(device), device_ids=train_cfg.gpu_ids)
+    model_p = nn.DataParallel(model_ft, device_ids=train_cfg.gpu_ids)
+    
     if train_cfg.resume_from_path:
         print("resume from %s"%(train_cfg.resume_from_path))
-        model_p.load_state_dict(torch.load(train_cfg.resume_from_path))
+        # model_p.load_state_dict(torch.load(train_cfg.resume_from_path))
+        model_p, optimizer_ft, train_cfg.resume_epoch = load_checkpoint(model_p, optimizer_ft, train_cfg.resume_from_path)
         
    
     # Print the model we just instantiated
@@ -277,7 +317,7 @@ if __name__ == "__main__":
     my_vis = Visual(train_cfg.model_bpath, log_to_file=train_cfg.vis_log)   
 
     # Observe that all parameters are being optimized
-    optimizer_ft = optim.SGD(model_p.parameters(), lr=0.1 * train_cfg.batch_size * 2 / 256.0, momentum=0.9)
+    
     # optimizer_ft = optim.RMSprop(params_to_update, momentum=0.9)
     # optimizer_ft = optim.Adam(model_p.parameters(), lr=1e-2, eps=1e-8, betas=(0.9, 0.99), weight_decay=0.)
     # optimizer_ft = optim.Adadelta(params_to_update, lr=1)

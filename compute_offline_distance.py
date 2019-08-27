@@ -30,7 +30,7 @@ def load_siamese_model(config, device='cuda:0'):
 
     model_ft = SiameseNetwork(cfg)
     model_p = nn.DataParallel(model_ft.to(device), device_ids=config.gpu_ids)
-    model_p.load_state_dict(torch.load(config.resume_from_path))
+    model_p.load_state_dict(torch.load(config.resume_from_path)['net'])
     model_p.eval()
     return model_p
 
@@ -75,7 +75,8 @@ def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
-    in_bpath_list = ['/dev/shm/datasets/201906-0807_all/all/', '/dev/shm/datasets/UE4_cls_0813/all/', '/dev/shm/datasets/cls_0808-12/all/']
+    # in_bpath_list = ['/dev/shm/datasets/201906-0807_all/all/', '/dev/shm/datasets/UE4_cls_0813/all/', '/dev/shm/datasets/cls_0808-12/all/']
+    in_bpath_list = ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/all/']
     # in_bpath_list = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all/', '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0808/UE4_cls_0808/all/']
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     # file_list = glob(in_bpath + '*/*.jpg')
@@ -91,7 +92,7 @@ if __name__ == "__main__":
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
-    batch_size = 512
+    batch_size = 400
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)

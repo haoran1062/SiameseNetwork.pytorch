@@ -6,6 +6,8 @@ import torch.nn.functional as F
 from torchvision import transforms
 from backbones.resnet import resnet18
 from backbones.seResnet import se_resnext50_32x4d
+from backbones.mobilenet import mobilenet_v2
+from backbones.shufflenet import shufflenet_v2_x0_5, shufflenet_v2_x1_0
 
 
 class SiameseNetwork(nn.Module):
@@ -32,6 +34,21 @@ class SiameseNetwork(nn.Module):
             model_ft = se_resnext50_32x4d(pretrained=pretrained, input_3x3=self.config.input_3x3)
             set_parameter_requires_grad(model_ft, self.config.feature_extract)
             num_ftrs = model_ft.fc.in_features
+            model_ft.fc = nn.Linear(num_ftrs, self.config.class_num)
+        
+        elif self.config.backbone_type == 'mobilenet':
+            model_ft = mobilenet_v2(pretrained=self.config.use_pre_train)
+            set_parameter_requires_grad(model_ft, self.config.feature_extract)
+            num_ftrs = model_ft.last_channel
+            model_ft.classifier = nn.Sequential(
+                nn.Dropout(0.2),
+                nn.Linear(num_ftrs, self.config.class_num),
+            )
+        
+        elif self.config.backbone_type == 'shufflenet':
+            model_ft = shufflenet_v2_x0_5(pretrained=self.config.use_pre_train)
+            set_parameter_requires_grad(model_ft, self.config.feature_extract)
+            num_ftrs = model_ft._stage_out_channels[-1]
             model_ft.fc = nn.Linear(num_ftrs, self.config.class_num)
         
         else:

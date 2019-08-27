@@ -29,7 +29,7 @@ def load_siamese_model(config, device='cuda:0'):
 
     model_ft = SiameseNetwork(cfg)
     model_p = nn.DataParallel(model_ft.to(device), device_ids=config.gpu_ids)
-    model_p.load_state_dict(torch.load(config.resume_from_path))
+    model_p.load_state_dict(torch.load(config.resume_from_path)['net'])
     model_p.eval()
     return model_p
 
@@ -59,14 +59,16 @@ if __name__ == "__main__":
     in_bpath = '/data/datasets/classify_data/truth_data/20190712_classify_train/'
     in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
     in_bpath = '/data/results/temp/classify_instance/201908/done/0806_cls_all/'
-    offline_bpath = 'offline_features/'
+    offline_bpath = '/data/haoran/t/se_resnext50_384_0814/offline_features/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
     f_len = len(file_list)
     device = 'cuda:0'
+    random.shuffle(file_list)
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
+    # net.eval()
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)

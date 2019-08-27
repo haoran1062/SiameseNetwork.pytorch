@@ -76,6 +76,15 @@ def initialize_model(model_name, num_classes, feature_extract, use_pretrained=Tr
         num_ftrs = model_ft.classifier[6].in_features
         model_ft.classifier[6] = nn.Linear(num_ftrs,num_classes)
         # input_size = 224
+    
+    elif model_name == 'mobilenet':
+        model_ft = models.mobilenet_v2(pretrained=use_pretrained)
+        set_parameter_requires_grad(model_ft, feature_extract)
+        num_ftrs = model_ft.classifier.in_features
+        model_ft.classifier = nn.Sequential(
+            nn.Dropout(0.2),
+            nn.Linear(num_ftrs, num_classes),
+        )
 
     elif model_name == "squeezenet":
         """ Squeezenet

@@ -3,15 +3,24 @@
 class Config(object):
     
     backbone_type = 'se-resnext50'
+    input_size = 384
+    
+    # backbone_type = 'mobilenet'
+    backbone_type = 'shufflenet'
     input_size = 224
 
     feature_extract = False
     use_pre_train = False
     input_3x3 = True
-    resume_from_path = '/data/train_models/classify_models/siamese_models/se_resnext50_512_0814/se_resnext50_512_0814/best.pth'
+    resume_from_path = '/data/haoran/t/se_resnext50_384_0814/best.pth'
+    
+    resume_from_path = '/data/train_models/classify_models/siamese_models/%s_%d_0820/best.pth'%(backbone_type, input_size)
+
     resume_epoch = 0
     epoch_num = 500
-    model_bpath = '/data/train_models/classify_models/siamese_models/se_resnext50_512_0814/se_resnext50_512_0814'
+    model_bpath = '/data/haoran/t/se_resnext50_384_0814'
+    
+    model_bpath = '/data/train_models/classify_models/siamese_models/%s_%d_0820'%(backbone_type, input_size)
     id_name_txt = model_bpath + '/id.txt'
 
     gpu_ids = [0]

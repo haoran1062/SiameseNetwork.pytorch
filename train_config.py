@@ -9,26 +9,31 @@ class Config(object):
     # train_datasets_bpath = ['/dev/shm/datasets/201906-0807_all/train', '/dev/shm/datasets/UE4_cls_0814/train', '/dev/shm/datasets/cls_0808-12/train', '/dev/shm/datasets/cls_0813/train']
     # test_datasets_bpath = ['/dev/shm/datasets/201906-0807_all/val', '/dev/shm/datasets/UE4_cls_0814/val', '/dev/shm/datasets/cls_0808-12/val', '/dev/shm/datasets/cls_0813/val']
 
-    train_datasets_bpath = ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/train']
-    test_datasets_bpath = ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/val']
+    train_datasets_bpath = ['/data/datasets/truth_data/classify_data/top100_checkout/20190625_train']
+    test_datasets_bpath = ['/data/datasets/truth_data/classify_data/top100_checkout/20190625_val']
+
+    # train_datasets_bpath = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all'] # ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/train']
+    # test_datasets_bpath = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all'] # ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/val']
     
     feature_extract = False
     use_pre_train = False
-    input_3x3 = False
+    input_3x3 = True
     resume_from_path = None
     fp16_using = True
+    random_shuffle = True
     resume_epoch = 0
     epoch_num = 24
-    model_bpath = '/data/train_models/classify_models/siamese_models/%s_%d_0820'%(backbone_type, input_size)
+    model_bpath = '/data/train_models/classify_models/siamese_models/%s_%d_0821'%(backbone_type, input_size)
     id_name_txt = model_bpath + '/id.txt'
     log_name = 'train.log'
     vis_log = model_bpath + '/vis.log'
 
     gpu_ids = [0]
-    batch_size = 64
+    batch_size = 16
     class_num = 3000
+    same_cate_prob = 0.5
     dataLoader_util = 'cv2' # cv2, PIL or jpeg4py (jpeg4py is faster) 
-    worker_numbers = 8
+    worker_numbers = 16
     def __init__(self):
         super(Config, self).__init__()
         

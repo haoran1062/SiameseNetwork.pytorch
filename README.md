@@ -8,7 +8,7 @@
   * change `batch_size` and `gpu_ids` to you want use
   * if you wanna use **FP16 Mixed Precision**, [apex](https://github.com/NVIDIA/apex) requirement, then change `fp16_using` = True
 * run `nohup python -m visdom.server &` on linux shell then goto `localhost:8097` to see your model visual output
-* then run `python train.py` to train
+* then run `python train.py` to train or run `fast_train.py` to train with `DALI` that `3x~20x` faster than `pytorch dataloader`
 
 ### requirement
 * pytorch >= 1.0
@@ -18,4 +18,5 @@
 * [jpeg4py](https://github.com/ajkxyz/jpeg4py)
 * tqdm
 * [apex](https://github.com/NVIDIA/apex)
+* [DALI](https://github.com/NVIDIA/DALI.git)
 

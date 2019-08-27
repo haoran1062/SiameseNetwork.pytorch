@@ -46,7 +46,7 @@ def origin_resize(img, resize=224):
 
 def tensor2img(in_tensor, normal=False):
     if normal:
-        in_tensor = un_normal_trans(in_tensor[0])
+        in_tensor = un_normal_trans(in_tensor[0].float())
     in_tensor = in_tensor.permute(1, 2 ,0)
     in_tensor = in_tensor.mul(255).byte()
     img = in_tensor.cpu().numpy()

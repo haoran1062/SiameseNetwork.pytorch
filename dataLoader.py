@@ -31,6 +31,55 @@ class ClassifyDataset(data.Dataset):
 
         self.fnames = self.get_data_list(base_data_path)
         self.num_samples = len(self.fnames)
+        self.img_augsometimes = lambda aug: iaa.Sometimes(0.5, aug)
+        self.augmentation = iaa.Sequential(
+            [
+                # augment without change bboxes 
+                self.img_augsometimes(
+                    iaa.SomeOf((1, 2), [
+                        iaa.Dropout([0.05, 0.2]),      # drop 5% or 20% of all pixels
+                        iaa.Sharpen((0.1, .8)),       # sharpen the image
+                        # iaa.GaussianBlur(sigma=(2., 3.5)),
+                        iaa.OneOf([
+                            iaa.GaussianBlur(sigma=(2., 3.5)),
+                            iaa.AverageBlur(k=(2, 5)),
+                            iaa.BilateralBlur(d=(7, 12), sigma_color=(10, 250), sigma_space=(10, 250)),
+                            iaa.MedianBlur(k=(3, 7)),
+                        ]),
+                        
+
+                        iaa.AddElementwise((-50, 50)),
+                        iaa.AdditiveGaussianNoise(scale=(0, 0.1 * 255)),
+                        iaa.JpegCompression(compression=(80, 95)),
+
+                        iaa.Multiply((0.5, 1.5)),
+                        iaa.MultiplyElementwise((0.5, 1.5)),
+                        iaa.ReplaceElementwise(0.05, [0, 255]),
+                        # iaa.WithColorspace(to_colorspace="HSV", from_colorspace="RGB",
+                        #                 children=iaa.WithChannels(2, iaa.Add((-10, 50)))),
+                        iaa.OneOf([
+                            iaa.WithColorspace(to_colorspace="HSV", from_colorspace="RGB",
+                                            children=iaa.WithChannels(1, iaa.Add((-10, 50)))),
+                            iaa.WithColorspace(to_colorspace="HSV", from_colorspace="RGB",
+                                            children=iaa.WithChannels(2, iaa.Add((-10, 50)))),
+                        ]),
+
+                        iaa.Affine(
+                            scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+                            translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
+                            rotate=(-25, 25),
+                            shear=(-8, 8)
+                        )
+
+                    ], random_order=True)
+                ),
+
+                iaa.Fliplr(.5),
+                iaa.Flipud(.25),
+
+            ],
+            random_order=True
+        )
 
         self.get_id_map()
     
@@ -101,6 +150,12 @@ class ClassifyDataset(data.Dataset):
         img1 = self.get_img_from_path(fname)
         assert img1 is not None, print(fname)
         label1 = self.get_label_from_path(fname)
+
+        if self.train:
+            # add data augument
+            seq_det = self.augmentation.to_deterministic()
+            img1 = seq_det.augment_images([img1])[0]
+
         img1 = self.transform(img1)
 
         should_get_same_class = random.randint(0,1) 
@@ -119,14 +174,14 @@ class ClassifyDataset(data.Dataset):
                     break
         img2 = self.get_img_from_path(fname)
         assert img2 is not None, print(fname)
-        img2 = self.transform(img2)
-        label2 = self.get_label_from_path(fname)
-        
+
         if self.train:
             # add data augument
-            pass
-            # seq_det = self.augmentation.to_deterministic()
-            # img = seq_det.augment_images([img])[0]
+            seq_det = self.augmentation.to_deterministic()
+            img2 = seq_det.augment_images([img2])[0]
+
+        img2 = self.transform(img2)
+        label2 = self.get_label_from_path(fname)
 
         return img1, img2, label1, label2, torch.from_numpy(np.array([int(label1 != label2)],dtype=np.float32))
 

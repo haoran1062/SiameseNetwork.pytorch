@@ -258,7 +258,8 @@ if __name__ == "__main__":
     if fp16_using:
         model_ft, optimizer_ft = amp.initialize(model_ft, optimizer_ft, opt_level='O1', loss_scale=128.0)
     # model_ft.load_state_dict(torch.load(config_map['resume_from_path']))
-    model_p = nn.DataParallel(model_ft, device_ids=train_cfg.gpu_ids)
+    # model_p = nn.DataParallel(model_ft, device_ids=train_cfg.gpu_ids)
+    model_p = DDP(model_ft)
     
     if train_cfg.resume_from_path:
         print("resume from %s"%(train_cfg.resume_from_path))

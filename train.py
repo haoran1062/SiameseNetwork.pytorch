@@ -19,6 +19,7 @@ from torchsummary import summary
 from dataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
 from ContrastiveLoss import ContrastiveLoss
+from CenterLoss import CenterLoss
 from train_config import Config
 import torch.nn.functional as F
 
@@ -54,7 +55,7 @@ if not os.path.exists(train_cfg.model_bpath):
 #   when True we only update the reshaped layer params
 
 
-def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_start=0, save_base_path='./', save_step=500, logger=None, vis=None, rename_map=None, id_name_map=None):
+def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs=25, epoch_start=0, save_base_path='./', save_step=500, logger=None, vis=None, rename_map=None, id_name_map=None):
     since = time.time()
     
     # cosin_lr = lr_scheduler.CosineAnnealingLR(optimizer, T_max=(num_epochs // 10)+1)
@@ -110,10 +111,16 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                     feature1, output1, feature2, output2 = model(img1, img2)
                     _, preds1 = torch.max(output1, 1)
                     _, preds2 = torch.max(output2, 1)
-                    
-                    sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                    now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 # sim_loss + 
 
+                    if centerCrit is not None:
+                        center_loss = centerCrit(feature1, label1) + centerCrit(feature2, label2)
+
+                    sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                    now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 # sim_loss +
+                    if centerCrit is not None:
+                        now_total_loss = now_total_loss + 0.01 * center_loss
+                    
+                    
                     # backward + optimize only if in training phase
                     if phase == 'train':
                         if fp16_using:
@@ -121,10 +128,7 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, epoch_s
                                 bp_loss.backward()
                         else:
                             now_total_loss.backward()
-                        # softmax_loss1.backward()
-                        # sim_loss.backward(retain_graph=True)
-                        # softmax_loss1.backward(retain_graph=True)
-                        # softmax_loss2.backward(retain_graph=True)
+
                         optimizer.step()
                 
 
@@ -324,13 +328,18 @@ if __name__ == "__main__":
 
     # Setup the loss fxn
     # criterion = nn.CrossEntropyLoss()
-    criterion = ContrastiveLoss()
+    criterion = ContrastiveLoss(train_cfg.use_focal_loss)
+
+    center_crit = None
+    if train_cfg.use_center_loss:
+        center_crit = CenterLoss(train_cfg.class_num)
+
 
     dataloaders = {}
     train_dataset = ClassifyDataset(base_data_path=train_cfg.train_datasets_bpath, train=True, transform = data_transforms['train'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
     train_loader = DataLoader(train_dataset,batch_size=train_cfg.batch_size, shuffle=True, num_workers=train_cfg.worker_numbers, pin_memory=True)
     test_dataset = ClassifyDataset(base_data_path=train_cfg.test_datasets_bpath, train=False,transform = data_transforms['val'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
-    test_loader = DataLoader(test_dataset,batch_size=train_cfg.batch_size,shuffle=True, num_workers=train_cfg.worker_numbers, pin_memory=True)
+    test_loader = DataLoader(test_dataset,batch_size=train_cfg.batch_size,shuffle=False, num_workers=train_cfg.worker_numbers, pin_memory=True)
     id_name_map = train_dataset.id_name_map
     data_len = int(len(test_dataset) / train_cfg.batch_size)
     logger.info('the dataset has %d images' % (len(train_dataset)))
@@ -341,5 +350,5 @@ if __name__ == "__main__":
 
     model_p.train()
     # Train and evaluate
-    train_model(model_p, dataloaders, criterion, optimizer_ft, num_epochs=train_cfg.epoch_num, epoch_start=train_cfg.resume_epoch, save_base_path=train_cfg.model_bpath, logger=logger, vis=my_vis, rename_map=id_name_map, id_name_map=id_name_map)
+    train_model(model_p, dataloaders, criterion, center_crit, optimizer_ft, num_epochs=train_cfg.epoch_num, epoch_start=train_cfg.resume_epoch, save_base_path=train_cfg.model_bpath, logger=logger, vis=my_vis, rename_map=id_name_map, id_name_map=id_name_map)
 

@@ -15,6 +15,8 @@ class Config(object):
     # train_datasets_bpath = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all'] # ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/train']
     # test_datasets_bpath = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all'] # ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/val']
     
+    use_center_loss = True
+    use_focal_loss = True
     feature_extract = False
     use_pre_train = False
     input_3x3 = True
@@ -29,7 +31,7 @@ class Config(object):
     vis_log = model_bpath + '/vis.log'
 
     gpu_ids = [0]
-    batch_size = 16
+    batch_size = 32
     class_num = 3000
     same_cate_prob = 0.5
     dataLoader_util = 'cv2' # cv2, PIL or jpeg4py (jpeg4py is faster) 

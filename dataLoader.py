@@ -36,7 +36,7 @@ class ClassifyDataset(data.Dataset):
             [
                 # augment without change bboxes 
                 self.img_augsometimes(
-                    iaa.SomeOf((1, 2), [
+                    iaa.SomeOf((1, 4), [
                         iaa.Dropout([0.05, 0.2]),      # drop 5% or 20% of all pixels
                         iaa.Sharpen((0.1, .8)),       # sharpen the image
                         # iaa.GaussianBlur(sigma=(2., 3.5)),

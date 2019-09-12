@@ -75,7 +75,8 @@ def get_batch_imgs(data_trans, img_list, st_iter, batch_size):
 if __name__ == "__main__":
     
     # in_bpath = '/data/datasets/truth_data/classify_data/201906-201907_checked/all/'
-    in_bpath_list = ['/dev/shm/datasets/201906-0807_all/all/', '/dev/shm/datasets/UE4_cls_0905/all/', '/dev/shm/datasets/cls_0808-12/all/', '/dev/shm/datasets/cls_0813/all/', '/dev/shm/datasets/cls_0820/all/', '/dev/shm/datasets/cls_0821/all/', '/dev/shm/datasets/cls_0822/all/', '/dev/shm/datasets/cls_0819_zh/all/', '/dev/shm/datasets/cls_0814-16/all/', '/dev/shm/datasets/0826-0829_all/all/', '/dev/shm/datasets/cls_0903/all/', '/dev/shm/datasets/cls_0905/all/']
+    # in_bpath_list = ['/dev/shm/datasets/201906-0807_all/all/', '/dev/shm/datasets/UE4_cls_0905/all/', '/dev/shm/datasets/cls_0808-12/all/', '/dev/shm/datasets/cls_0813/all/', '/dev/shm/datasets/cls_0820/all/', '/dev/shm/datasets/cls_0821/all/', '/dev/shm/datasets/cls_0822/all/', '/dev/shm/datasets/cls_0819_zh/all/', '/dev/shm/datasets/cls_0814-16/all/', '/dev/shm/datasets/0826-0829_all/all/', '/dev/shm/datasets/cls_0903/all/', '/dev/shm/datasets/cls_0905/all/', '/dev/shm/datasets/cls_0906/all/', '/dev/shm/datasets/cls_1_0909/all/']
+    in_bpath_list = glob('/dev/shm/datasets/*/all/')
     # in_bpath_list = ['/data/datasets/truth_data/classify_data/hardcase_classify_datasets/all/']
     # in_bpath_list = ['/data/datasets/truth_data/classify_data/201906-201907_checked/all/', '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0808/UE4_cls_0808/all/']
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'

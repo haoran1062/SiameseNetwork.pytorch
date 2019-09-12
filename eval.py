@@ -21,6 +21,7 @@ from SiameseNet import SiameseNetwork
 from ContrastiveLoss import ContrastiveLoss
 from eval_config import Config
 import torch.nn.functional as F
+from COCOLoss import COCOLoss
 
 cfg = Config()
 
@@ -59,12 +60,17 @@ if __name__ == "__main__":
     in_bpath = '/data/datasets/truth_data/classify_data/hardcase_classify_datasets/val/'
     in_bpath = '/data/results/temp/classify_instance/201908/20190819_1_instances/'
     in_bpath = '/data/results/temp/classify_instance/201908/cigarette_case/'
+    in_bpath = '/data/datasets/truth_data/classify_data/201907/20190701/'
     # in_bpath = '/data/datasets/sync_data/classify_sync_instances/UE4_cls_0805/UE4_cls_0805/all/'
     file_list = glob(in_bpath + '*/*.jpg')
     f_len = len(file_list)
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
+    addCrit = None
+    if 'COCOLoss' in cfg.additive_loss_type:
+        addCrit = COCOLoss(cfg.class_num)
+        addCrit.load_state_dict(torch.load(cfg.crit_resume_path))
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)
@@ -74,6 +80,7 @@ if __name__ == "__main__":
             a_img_file = file_list[random.randint(0, f_len - 1)]
             label_a = get_label_from_path(a_img_file)
             img_a = cv2.imread(a_img_file)
+            print(a_img_file)
 
             if random.randint(0, 1):
                 while True:
@@ -95,6 +102,10 @@ if __name__ == "__main__":
 
             ta = time.clock()
             feature_a, softmax_a, feature_b, softmax_b = net(t_img_a, t_img_b)
+            if 'COCOLoss' in cfg.additive_loss_type:
+                softmax_a = addCrit(feature_a)
+                softmax_b = addCrit(feature_b)
+                print('ok')
             tb = time.clock()
             print(tb - ta)
 
@@ -102,6 +113,7 @@ if __name__ == "__main__":
             # print(pred.shape)
             p_a_cls = id_name_map[pred.argmax().cpu().item()]
             p_a_conf = pred[pred.argmax()].cpu().item()
+            print(p_a_conf)
 
             pred = F.softmax(softmax_b, 1)[0]
             # print(pred.shape)
@@ -115,12 +127,12 @@ if __name__ == "__main__":
             print('a gt label/pred a label : %d/%s\tconfidence: %.2f\t b gt label/b img label : %d/%s\tconfidence: %.2f\tdistance : %.2f'%(label_a, p_a_cls, p_a_conf, label_b, p_b_cls, p_b_conf, distance))
             # print('a img pred : %d\t b img pred : %d'%(pred_a, pred_b))
 
-            feature_a, softmax_a = net(t_img_a)
-            pred = F.softmax(softmax_a, 1)[0]
-            # print(pred.shape)
-            p_a_cls = id_name_map[pred.argmax().cpu().item()]
-            p_a_conf = pred[pred.argmax()].cpu().item()
-            print(p_a_cls, p_a_conf)
+            # feature_a, softmax_a = net(t_img_a)
+            # pred = F.softmax(softmax_a, 1)[0]
+            # # print(pred.shape)
+            # p_a_cls = id_name_map[pred.argmax().cpu().item()]
+            # p_a_conf = pred[pred.argmax()].cpu().item()
+            # print(p_a_cls, p_a_conf)
             
             cv2.imshow('a img', img_a)
             cv2.imshow('b img', img_b)

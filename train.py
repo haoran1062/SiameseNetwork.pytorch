@@ -20,6 +20,7 @@ from dataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
 from ContrastiveLoss import ContrastiveLoss
 from CenterLoss import CenterLoss
+from COCOLoss import COCOLoss
 from train_config import Config
 import torch.nn.functional as F
 
@@ -55,12 +56,20 @@ if not os.path.exists(train_cfg.model_bpath):
 #   when True we only update the reshaped layer params
 
 
-def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs=25, epoch_start=0, save_base_path='./', save_step=500, logger=None, vis=None, rename_map=None, id_name_map=None):
+def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, save_step=1000, logger=None, vis=None, rename_map=None, id_name_map=None):
     since = time.time()
     
+    num_epochs=train_cfg.epoch_num
+    epoch_start=train_cfg.resume_epoch
+    save_base_path=train_cfg.model_bpath
     # cosin_lr = lr_scheduler.CosineAnnealingLR(optimizer, T_max=(num_epochs // 10)+1)
     adjust_lr = lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.8, verbose=1, patience=2)
     best_model_wts = copy.deepcopy(model.state_dict())
+    if  train_cfg.additive_loss_type == 'COCOLoss':
+        best_coco_crit_w = copy.deepcopy(addCrit.state_dict())
+    elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+        best_coco_crit_w = copy.deepcopy(addCrit[0].state_dict())
+
     best_acc = 0.0
 
     for epoch in range(epoch_start, num_epochs):
@@ -109,18 +118,30 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
                     #   but in testing we only consider the final output.
                     
                     feature1, output1, feature2, output2 = model(img1, img2)
-                    _, preds1 = torch.max(output1, 1)
-                    _, preds2 = torch.max(output2, 1)
-
-                    if centerCrit is not None:
-                        center_loss = centerCrit(feature1, label1) + centerCrit(feature2, label2)
-
-                    sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                    now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 # sim_loss +
-                    if centerCrit is not None:
-                        now_total_loss = now_total_loss + 0.01 * center_loss
                     
+
+                    if train_cfg.additive_loss_type is None or train_cfg.additive_loss_type == '':
+                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2
                     
+                    elif train_cfg.additive_loss_type == 'CenterLoss':
+                        center_loss = addCrit(feature1, label1) + addCrit(feature2, label2)
+                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 0.001 * center_loss
+                    
+                    elif train_cfg.additive_loss_type == 'COCOLoss':
+                        output1 = addCrit(feature1)
+                        output2 = addCrit(feature2)
+                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2
+
+                    elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+                        output1 = addCrit[0](feature1)
+                        output2 = addCrit[0](feature2)
+                        center_loss = addCrit[1](feature1, label1) + addCrit[1](feature2, label2)
+                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
+                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 0.001 * center_loss
+
                     # backward + optimize only if in training phase
                     if phase == 'train':
                         if fp16_using:
@@ -135,7 +156,9 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
                 # statistics
                 now_loss = now_total_loss.item() # * img1.size(0)
                 running_loss += now_loss
-                
+
+                _, preds1 = torch.max(output1, 1)
+                _, preds2 = torch.max(output2, 1)
                 now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data)
                 # print(now_correct)
                 running_corrects += now_correct
@@ -176,6 +199,10 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
                         show_id = t_pred.argmax().cpu().item()
                         conf = t_pred[t_pred.argmax()].cpu().item()
 
+
+                        # conf, _ = torch.max(output1, 1)
+                        # conf = conf.cpu()[0]
+
                         # show_id = preds1.to('cpu').numpy()[0]
                         # conf = output1[0][show_id].cpu().item()
                         if show_id in id_name_map.keys():
@@ -190,6 +217,8 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
                         t_pred = F.softmax(output2, 1)[0]
                         show_id = t_pred.argmax().cpu().item()
                         conf = t_pred[t_pred.argmax()].cpu().item()
+                        # conf, _ = torch.max(output1, 1)
+                        # conf = conf.cpu()[0]
 
                         # show_id = preds2.to('cpu').numpy()[0]
                         # conf = output2[0][show_id].cpu().item()
@@ -206,6 +235,11 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
                     if not os.path.exists('%s'%(save_base_path)):
                         os.mkdir('%s'%(save_base_path))
                     save_checkpoint(model, optimizer, epoch, '%s/epoch_%d.pth'%(save_base_path, epoch))
+                    if  train_cfg.additive_loss_type == 'COCOLoss':
+                        torch.save(addCrit.state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
+
+                    elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+                        torch.save(addCrit[0].state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
                     # torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
                 
                 data = prefetcher.next()
@@ -234,6 +268,16 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
             # deep copy the model
             if phase == 'test' and epoch_acc > best_acc:
                 best_model_wts = copy.deepcopy(model.state_dict())
+                if  train_cfg.additive_loss_type == 'COCOLoss':
+                    best_coco_crit_w = copy.deepcopy(addCrit.state_dict())
+                elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+                    best_coco_crit_w = copy.deepcopy(addCrit[0].state_dict())
+                
+                # model.load_state_dict(best_model_wts)
+                # torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
+                torch.save(best_coco_crit_w, '%s/best_COCOCrit.pth'%(save_base_path))
+                save_checkpoint(model, optimizer, epoch, '%s/best.pth'%(save_base_path))
+
                 best_acc = epoch_acc
                 acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/best_meanAcc.txt', rename_map=rename_map)
             if phase == 'test':
@@ -242,9 +286,7 @@ def train_model(model, dataloaders, criterion, centerCrit, optimizer, num_epochs
     time_elapsed = time.time() - since
     logger.info('finish training using %.2fs'%(time_elapsed))
     # load best model weights
-    model.load_state_dict(best_model_wts)
-    # torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
-    save_checkpoint(model, optimizer, epoch, '%s/best.pth'%(save_base_path))
+    
 
 def save_checkpoint(model, optimizer, epoch, save_path):
     state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch':epoch}
@@ -303,18 +345,6 @@ if __name__ == "__main__":
         print("resume from %s"%(train_cfg.resume_from_path))
         # model_p.load_state_dict(torch.load(train_cfg.resume_from_path))
         model_p, optimizer_ft, train_cfg.resume_epoch = load_checkpoint(model_p, optimizer_ft, train_cfg.resume_from_path)
-        
-   
-    # Print the model we just instantiated
-    # summary(model_p, (3, img_input_size, img_input_size))
-
-    # Send the model to GPU
-
-    # Gather the parameters to be optimized/updated in this run. If we are
-    #  finetuning we will be updating all parameters. However, if we are 
-    #  doing feature extract method, we will only update the parameters
-    #  that we have just initialized, i.e. the parameters with requires_grad
-    #  is True.
 
     logger = create_logger(train_cfg.model_bpath, train_cfg.log_name)
 
@@ -330,9 +360,13 @@ if __name__ == "__main__":
     # criterion = nn.CrossEntropyLoss()
     criterion = ContrastiveLoss(train_cfg.use_focal_loss)
 
-    center_crit = None
-    if train_cfg.use_center_loss:
-        center_crit = CenterLoss(train_cfg.class_num)
+    add_crit = None
+    if train_cfg.additive_loss_type == 'CenterLoss':
+        add_crit = CenterLoss(train_cfg.class_num)
+    elif train_cfg.additive_loss_type == 'COCOLoss':
+        add_crit = COCOLoss(train_cfg.class_num)
+    elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+        add_crit = [COCOLoss(train_cfg.class_num), CenterLoss(train_cfg.class_num)]
 
 
     dataloaders = {}
@@ -350,5 +384,5 @@ if __name__ == "__main__":
 
     model_p.train()
     # Train and evaluate
-    train_model(model_p, dataloaders, criterion, center_crit, optimizer_ft, num_epochs=train_cfg.epoch_num, epoch_start=train_cfg.resume_epoch, save_base_path=train_cfg.model_bpath, logger=logger, vis=my_vis, rename_map=id_name_map, id_name_map=id_name_map)
+    train_model(model_p, dataloaders, criterion, add_crit, optimizer_ft, train_cfg, logger=logger, vis=my_vis, rename_map=id_name_map, id_name_map=id_name_map)
 

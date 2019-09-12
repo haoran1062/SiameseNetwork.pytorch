@@ -59,15 +59,19 @@ class SiameseNetwork(nn.Module):
         return model_ft
 
     def forward_once(self, x):
-        # print(self.backbone(x))
         feature, output = self.backbone(x)
         return feature, output
     
-    def forward(self, input1, input2=None):
+    def forward(self, input1, input2=None, input3=None):
         feature1, output1 = self.forward_once(input1)
-        if input2 is not None:
+        if input2 is not None and input3 is None:
             feature2, output2 = self.forward_once(input2)
             return feature1, output1, feature2, output2
+
+        if input3 is not None:
+            feature2, output2 = self.forward_once(input2)
+            feature3, output3 = self.forward_once(input3)
+            return feature1, output1, feature2, output2, feature3, output3
         
         return feature1, output1
         

@@ -16,12 +16,12 @@ from utils.data_utils import *
 from utils.train_utils import *
 from utils.visual import Visual
 from torchsummary import summary
-from dataLoader import ClassifyDataset
+from TripletDataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
-from ContrastiveLoss import ContrastiveLoss
+from TripletLoss import TripletLoss
 from CenterLoss import CenterLoss
 from COCOLoss import COCOLoss
-from train_config import Config
+from triplet_train_config import Config
 import torch.nn.functional as F
 
 try:
@@ -98,14 +98,15 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
             # Iterate over data.
             # for it, temp in enumerate(dataloaders[phase]):
             while data is not None:
-                img1, img2, label1, label2, sim_labels = data
+                img1, img2, img3, label1, label2, label3 = data
                 # inputs, labels = temp
                 img1 = img1.to(device)
                 img2 = img2.to(device)
+                img3 = img3.to(device)
                 label1 = label1.to(device)
                 label2 = label2.to(device)
-                sim_labels = sim_labels.to(device)
-                
+                label3 = label3.to(device)
+
                 st = time.clock()
                 # zero the parameter gradients
                 optimizer.zero_grad()
@@ -118,30 +119,32 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     #   mode we calculate the loss by summing the final output and the auxiliary output
                     #   but in testing we only consider the final output.
                     
-                    feature1, output1, feature2, output2 = model(img1, img2)
+                    feature1, output1, feature2, output2, feature3, output3 = model(img1, img2, img3)
                     
 
                     if train_cfg.additive_loss_type is None or train_cfg.additive_loss_type == '':
-                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2
+                        trip_loss, softmax_loss1, softmax_loss2, softmax_loss3 = criterion(feature1, feature2, feature3, output1, output2, output3, label1, label2, label3)
+                        now_total_loss = 0.01 * trip_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 1. * softmax_loss3
                     
                     elif train_cfg.additive_loss_type == 'CenterLoss':
-                        center_loss = addCrit(feature1, label1) + addCrit(feature2, label2)
-                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 0.001 * center_loss
+                        center_loss = addCrit(feature1, label1) + addCrit(feature2, label2) + addCrit(feature3, label3)
+                        trip_loss, softmax_loss1, softmax_loss2, softmax_loss3 = criterion(feature1, feature2, feature3, output1, output2, output3, label1, label2, label3)
+                        now_total_loss = 0.01 * trip_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 1. * softmax_loss3 + 0.001 * center_loss
                     
                     elif train_cfg.additive_loss_type == 'COCOLoss':
                         output1 = addCrit(feature1)
                         output2 = addCrit(feature2)
-                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2
+                        output3 = addCrit(feature3)
+                        trip_loss, softmax_loss1, softmax_loss2, softmax_loss3 = criterion(feature1, feature2, feature3, output1, output2, output3, label1, label2, label3)
+                        now_total_loss = 0.01 * trip_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 1. * softmax_loss3
 
                     elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
                         output1 = addCrit[0](feature1)
                         output2 = addCrit[0](feature2)
-                        center_loss = addCrit[1](feature1, label1) + addCrit[1](feature2, label2)
-                        sim_loss, softmax_loss1, softmax_loss2 = criterion(feature1, feature2, output1, output2, label1, label2, sim_labels)
-                        now_total_loss = 0.01 * sim_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 0.001 * center_loss
+                        output3 = addCrit[0](feature3)
+                        center_loss = addCrit[1](feature1, label1) + addCrit[1](feature2, label2) + addCrit[1](feature3, label3)
+                        trip_loss, softmax_loss1, softmax_loss2, softmax_loss3 = criterion(feature1, feature2, feature3, output1, output2, output3, label1, label2, label3)
+                        now_total_loss = 0.01 * trip_loss + 1. * softmax_loss1 + 1. * softmax_loss2 + 1. * softmax_loss3 + 0.001 * center_loss
 
                     # backward + optimize only if in training phase
                     if phase == 'train':
@@ -160,7 +163,8 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
 
                 _, preds1 = torch.max(output1, 1)
                 _, preds2 = torch.max(output2, 1)
-                now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data)
+                _, preds3 = torch.max(output3, 1)
+                now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data) + torch.sum(preds3 == label3.data)
                 # print(now_correct)
                 running_corrects += now_correct
 
@@ -181,7 +185,7 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                 
                 if it % 10 == 0:
                     # convert_show_cls_bar_data(acc_map, rename_map=rename_map)
-                    now_acc = float(now_correct) / (len(preds1)*2.0)
+                    now_acc = float(now_correct) / (len(preds1)*3.0)
 
                     if phase == 'train':
                         logger.info('Epoch [{}/{}], Iter [{}/{}] expect end in {:4f} min.  average_loss: {:2f}, acc: {:2f}'.format(
@@ -229,8 +233,29 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     else:
                         vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0], conf))
                     
-                    # print(feature1.shape)
-                    vis.img('like result', get_show_result_img(sim_labels.to('cpu').numpy()[0], F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
+                    img_3 = tensor2img(img3, normal=True)
+                    vis.img('pred3 img', img_3)
+                    if id_name_map:
+                        t_pred = F.softmax(output3, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+                        # conf, _ = torch.max(output1, 1)
+                        # conf = conf.cpu()[0]
+
+                        # show_id = preds2.to('cpu').numpy()[0]
+                        # conf = output2[0][show_id].cpu().item()
+                        if show_id in id_name_map.keys():
+                            show_id = id_name_map[show_id]
+                        vis.img('pred3 result', get_show_result_img(id_name_map[label3.to('cpu').numpy()[0]], show_id, conf))
+                    else:
+                        vis.img('pred3 result', get_show_result_img(label3.to('cpu').numpy()[0], preds3.to('cpu').numpy()[0], conf))
+                    
+                    # print(feature1.shape)  .pow(2).sum(1)
+                    vis.img('pos distance', get_show_result_img(0, (feature1[0].unsqueeze(0) - feature2[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
+                    vis.img('neg distance', get_show_result_img(1, (feature1[0].unsqueeze(0) - feature3[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
+
+                    # vis.img('pos distance', get_show_result_img(0, F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
+                    # vis.img('neg distance', get_show_result_img(1, F.pairwise_distance(feature1[0].unsqueeze(0), feature3[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
 
                 if it % save_step == 0 and phase == 'train':
                     if not os.path.exists('%s'%(save_base_path)):
@@ -250,7 +275,7 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     break
 
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
-            epoch_acc = running_corrects.double() / (len(dataloaders[phase].dataset) * 2)
+            epoch_acc = running_corrects.double() / (len(dataloaders[phase].dataset) * 3)
 
             adjust_lr.step(epoch_loss)
 
@@ -337,7 +362,7 @@ if __name__ == "__main__":
 
     # Initialize the model for this run
     model_ft = SiameseNetwork(train_cfg).to(device)
-    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 2 / 256.0, momentum=0.9)
+    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 3 / 256.0, momentum=0.9)
     if fp16_using:
         model_ft, optimizer_ft = amp.initialize(model_ft, optimizer_ft, opt_level='O1', loss_scale=128.0)
     # model_ft.load_state_dict(torch.load(config_map['resume_from_path']))
@@ -360,7 +385,7 @@ if __name__ == "__main__":
 
     # Setup the loss fxn
     # criterion = nn.CrossEntropyLoss()
-    criterion = ContrastiveLoss(train_cfg.use_focal_loss)
+    criterion = TripletLoss(train_cfg.use_focal_loss)
 
     add_crit = None
     if train_cfg.additive_loss_type == 'CenterLoss':

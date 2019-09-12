@@ -1,6 +1,6 @@
-# Siamese-Network
+# Siamese-Network and Triplet-Network
 ## 
-### how to run
+### how to run Siamese-Network
 * modify `train_config.py` and `eval_config.py`: 
   * change `backbone_type` you want use [`se-resnext50`, `vgg`, `resnet50`, `resnext50`, `resnext101`] you can add your backbone in `backbones`, or add torchvision supported model by modify `utils/model_utils.py`
   * **train_datasets_bpath** = `'data/to/your/path'` and same to **test_datasets_bpath**
@@ -14,6 +14,10 @@
   * if train with focal loss, change `use_focal_loss` = `True`
 * run `nohup python -m visdom.server &` on linux shell then goto `localhost:8097` to see your model visual output
 * then run `python train.py` to train ~~or run `fast_train.py` to train with `DALI` that `3x~20x`(still debuging only support single GPU now) faster than `pytorch dataloader`~~
+
+### Triplet-Network
+* modify `triplet_train_config.py` reference `Siamese-Network`
+* run `python triplet_train.py`
 
 ### requirement
 * pytorch >= 1.0

@@ -2,7 +2,7 @@
 import os, sys, numpy as np, random, time, cv2
 import torch
 
-import jpeg4py as jpeg
+# import jpeg4py as jpeg
 from PIL import Image
 import torch.utils.data as data
 import torchvision.transforms as transforms

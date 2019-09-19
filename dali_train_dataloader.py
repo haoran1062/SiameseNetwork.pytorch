@@ -7,7 +7,6 @@ from random import shuffle, randint
 import nvidia.dali.ops as ops 
 import nvidia.dali.types as types
 from nvidia.dali.pipeline import Pipeline
-from train_config import Config
 from nvidia.dali.plugin.pytorch import DALIGenericIterator
 
 
@@ -134,9 +133,9 @@ class SiamesePipeline(Pipeline):
         target_images = self.paste(target_images.gpu(), ratio = ratio)
         target_images = self.normalize(target_images)
 
-        self.cmp_jpegs = self.input_cmp_images()
-        self.cmp_labels = self.input_cmp_labels()
-        cmp_images = self.decode(self.cmp_jpegs)
+        self.pos_jpegs = self.input_cmp_images()
+        self.pos_labels = self.input_pos_labels()
+        cmp_images = self.decode(self.pos_jpegs)
         cmp_images = self.resize_op(cmp_images)
 
         ratio = self.paste_ratio()
@@ -146,24 +145,176 @@ class SiamesePipeline(Pipeline):
 
         self.siamese_labels =  self.input_siamese_labels()
 
-        return (target_images, self.target_labels.gpu(), cmp_images, self.cmp_labels.gpu(), self.siamese_labels.gpu())
+        return (target_images, self.target_labels.gpu(), cmp_images, self.pos_labels.gpu(), self.siamese_labels.gpu())
     
     def iter_setup(self):
-        (target_imgs, target_labels, cmp_imgs, cmp_labels, siamese_labels) = self.iterator.next()
+        (target_imgs, target_labels, cmp_imgs, pos_labels, siamese_labels) = self.iterator.next()
         self.feed_input(self.target_jpegs, target_imgs)
         self.feed_input(self.target_labels, target_labels)
-        self.feed_input(self.cmp_jpegs, cmp_imgs)
-        self.feed_input(self.cmp_labels, cmp_labels)
+        self.feed_input(self.pos_jpegs, cmp_imgs)
+        self.feed_input(self.pos_labels, pos_labels)
         self.feed_input(self.siamese_labels, siamese_labels)
 
-def get_dataloader(pipiter, pipline, output_map, cfg, is_train):
+class CustomTripletIterator(object):
+    def __init__(self, batch_size, root_dir, random_shuffle=False):
+        self.images_dir = root_dir
+        self.batch_size = batch_size
+        self.files = self.get_data_list(self.images_dir)
+        self.cls_path_map = self.get_cls_pathlist_map()
+        if random_shuffle:
+            shuffle(self.files)
+
+    def __iter__(self):
+        self.i = 0
+        self.n = len(self.files)
+        return self
+
+    def get_data_list(self, base_data_path):
+        cls_file_list = []
+        if isinstance(base_data_path, list):
+            for i in base_data_path:
+                cls_file_list = cls_file_list + glob(i + '/*/*.jpg')
+        elif '|' in base_data_path:
+            base_data_path = base_data_path.split('|')
+            for i in base_data_path:
+                cls_file_list = cls_file_list + glob(i + '/*/*.jpg')
+        else:
+            cls_file_list = glob(base_data_path + '/*/*.jpg')
+
+        return cls_file_list
+
+    def get_label_from_path(self, in_path):
+        return int(in_path.split('/')[-2])
+
+    def get_cls_pathlist_map(self):
+        '''
+            speedup choice special category sample
+
+
+        '''
+        ans_map = {}
+        print('build choice map...')
+        for now_path in tqdm(self.files):
+            now_cls = self.get_label_from_path(now_path)
+            if now_cls not in ans_map.keys():
+                ans_map[now_cls] = [now_path]
+            else:
+                ans_map[now_cls].append(now_path)
+        return ans_map
+
+    def __next__(self):
+        target_imgs = []
+        target_labels = []
+        pos_imgs = []
+        pos_labels = []
+        neg_imgs = []
+        neg_labels = []
+
+        for _ in range(self.batch_size):
+            jpeg_filename, label = self.files[self.i], self.get_label_from_path(self.files[self.i])
+            f = open(jpeg_filename, 'rb')
+            target_imgs.append(np.frombuffer(f.read(), dtype = np.uint8))
+            target_labels.append(np.array([label], dtype = np.int64))
+            # pos
+            jpeg_filename = self.cls_path_map[label][randint(0, len(self.cls_path_map[label])-1)]
+            f = open(jpeg_filename, 'rb')
+            pos_imgs.append(np.frombuffer(f.read(), dtype = np.uint8))
+            pos_labels.append(np.array([label], dtype = np.int64))
+            # neg
+            ch_label_list = list(self.cls_path_map.keys())
+            ch_label_list.remove(label)
+            label = ch_label_list[randint(0, len(ch_label_list)-1)]
+            jpeg_filename = self.cls_path_map[label][randint(0, len(self.cls_path_map[label])-1)]
+            f = open(jpeg_filename, 'rb')
+            neg_imgs.append(np.frombuffer(f.read(), dtype = np.uint8))
+            neg_labels.append(np.array([label], dtype = np.int64))
+
+            self.i = (self.i + 1) % self.n
+        return (target_imgs, target_labels, pos_imgs, pos_labels, neg_imgs, neg_labels)
+
+    next = __next__
+
+class TripletPipeline(Pipeline):
+
+    def __init__(self, cfg, root_dir, batch_size, num_threads, device_id=0):
+        super(TripletPipeline, self).__init__(batch_size, num_threads, device_id, seed=12)
+        self.input_target_images = ops.ExternalSource()
+        self.input_target_labels = ops.ExternalSource()
+        self.input_pos_images = ops.ExternalSource()
+        self.input_pos_labels = ops.ExternalSource()
+        self.input_neg_images = ops.ExternalSource()
+        self.input_neg_labels = ops.ExternalSource()
+        self.dataset = CustomTripletIterator(batch_size, root_dir, cfg.random_shuffle)
+        self.iterator = iter(self.dataset)
+
+        self.decode = ops.ImageDecoder(device = 'cpu', output_type = types.BGR)
+        self.resize_op = ops.Resize(resize_longer=cfg.input_size)
+
+        self.paste_ratio = ops.Uniform(range=(9, 12))
+        self.paste = ops.Paste(device="gpu", fill_value=(255,255,255))
+        # self.crop = ops.Crop(device ='gpu', crop=[224, 224])
+        output_dtype = types.FLOAT16 if cfg.fp16_using else types.FLOAT
+        # output_dtype = types.FLOAT
+        self.normalize = ops.CropMirrorNormalize(
+            device="gpu",
+            crop=(cfg.input_size, cfg.input_size),
+            mean=[0.485 * 255, 0.456 * 255, 0.406 * 255],
+            std=[0.229 * 255, 0.224 * 255, 0.225 * 255],
+            mirror=0,
+            output_dtype=output_dtype,
+            output_layout=types.NCHW,
+            pad_output=False)
+
+    def define_graph(self):
+        self.target_jpegs = self.input_target_images()
+        self.target_labels = self.input_target_labels()
+        target_images = self.decode(self.target_jpegs)
+        target_images = self.resize_op(target_images)
+
+        ratio = self.paste_ratio()
+
+        target_images = self.paste(target_images.gpu(), ratio = ratio)
+        target_images = self.normalize(target_images)
+        # positive 
+        self.pos_jpegs = self.input_pos_images()
+        self.pos_labels = self.input_pos_labels()
+        pos_images = self.decode(self.pos_jpegs)
+        pos_images = self.resize_op(pos_images)
+
+        ratio = self.paste_ratio()
+
+        pos_images = self.paste(pos_images.gpu(), ratio = ratio)
+        pos_images = self.normalize(pos_images)
+        # negative
+        self.neg_jpegs = self.input_neg_images()
+        self.neg_labels = self.input_neg_labels()
+        neg_images = self.decode(self.neg_jpegs)
+        neg_images = self.resize_op(neg_images)
+
+        ratio = self.paste_ratio()
+
+        neg_images = self.paste(neg_images.gpu(), ratio = ratio)
+        neg_images = self.normalize(neg_images)
+
+        return (target_images, self.target_labels.gpu(), pos_images, self.pos_labels.gpu(), neg_images, self.neg_labels.gpu())
+    
+    def iter_setup(self):
+        (target_imgs, target_labels, pos_images, pos_labels, neg_images, neg_labels) = self.iterator.next()
+        self.feed_input(self.target_jpegs, target_imgs)
+        self.feed_input(self.target_labels, target_labels)
+        self.feed_input(self.pos_jpegs, pos_images)
+        self.feed_input(self.pos_labels, pos_labels)
+        self.feed_input(self.neg_jpegs, neg_images)
+        self.feed_input(self.neg_labels, neg_labels)
+
+def get_dataloader(pipiter, pipline, output_map, cfg, is_train, device_id=0):
 
     if is_train:
         root_dir = cfg.train_datasets_bpath
     else:
         root_dir = cfg.test_datasets_bpath
-    now_pipline = pipline(cfg, root_dir, cfg.batch_size, cfg.worker_numbers)
-    dataloader = DALIGenericIterator(now_pipline, output_map, now_pipline.dataset.n / len(cfg.gpu_ids), auto_reset=True)
+    now_pipline = pipline(cfg, root_dir, cfg.batch_size, cfg.worker_numbers, device_id=device_id)
+    dataloader = DALIGenericIterator(now_pipline, output_map, now_pipline.dataset.n , auto_reset=True)
     return dataloader
 
 if __name__ == "__main__":
@@ -171,6 +322,7 @@ if __name__ == "__main__":
     # root_dir = '/data/datasets/truth_data/classify_data/201906-201907_checked/all'
     # root_dir = '/dev/shm/all'
     # file_list = 'train.txt'
+    from train_config import Config
     cfg = Config()
     # thread_number = cfg.worker_numbers
     # batch_size = cfg.batch_size

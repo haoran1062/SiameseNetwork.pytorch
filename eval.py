@@ -19,7 +19,8 @@ from torchsummary import summary
 from dataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
 from ContrastiveLoss import ContrastiveLoss
-from eval_config import Config
+# from eval_config import Config
+from triplet_eval_config import Config
 import torch.nn.functional as F
 from COCOLoss import COCOLoss
 
@@ -124,6 +125,7 @@ if __name__ == "__main__":
 
             distance = F.pairwise_distance(feature_a[0].unsqueeze(0), feature_b[0].unsqueeze(0)).detach().to('cpu').numpy()[0]
             # print('a img label : %d\t b img label : %d\t distance : %.2f'%(label_a, label_b, distance))
+            # distance = (feature_a[0].unsqueeze(0) - feature_b[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]
             print('a gt label/pred a label : %d/%s\tconfidence: %.2f\t b gt label/b img label : %d/%s\tconfidence: %.2f\tdistance : %.2f'%(label_a, p_a_cls, p_a_conf, label_b, p_b_cls, p_b_conf, distance))
             # print('a img pred : %d\t b img pred : %d'%(pred_a, pred_b))
 

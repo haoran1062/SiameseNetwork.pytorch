@@ -5,10 +5,28 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)
-std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)
-un_normal_trans = transforms.Normalize((-mean / std).tolist(), (1.0 / std).tolist())
+# mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)
+# std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)
+# un_normal_trans = transforms.Normalize((-mean / std).tolist(), (1.0 / std).tolist())
 
+class UnNormalize(object):
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        for t, m, s in zip(tensor, self.mean, self.std):
+            t.mul_(s).add_(m)
+            # The normalize code -> t.sub_(m).div_(s)
+        return tensor
+
+un_normal_trans = UnNormalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
 
 def padding_resize(img, resize=224):
     if isinstance(img, Image.Image):
@@ -46,7 +64,7 @@ def origin_resize(img, resize=224):
 
 def tensor2img(in_tensor, normal=False):
     if normal:
-        in_tensor = un_normal_trans(in_tensor[0].float())
+        in_tensor = un_normal_trans(in_tensor[0].float()).cuda()
     in_tensor = in_tensor.permute(1, 2 ,0)
     in_tensor = in_tensor.mul(255).byte()
     img = in_tensor.cpu().numpy()

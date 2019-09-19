@@ -1,5 +1,5 @@
 # encoding:utf-8
-import os, numpy as np, torch, cv2, jpeg4py, time, random
+import os, numpy as np, torch, cv2, time, random
 import torch.nn as nn
 
 import torch.nn.functional as F

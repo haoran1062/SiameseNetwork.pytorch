@@ -23,6 +23,7 @@ from CenterLoss import CenterLoss
 from COCOLoss import COCOLoss
 from triplet_train_config import Config
 import torch.nn.functional as F
+from dali_train_dataloader import *
 
 try:
     from apex.parallel import DistributedDataParallel as DDP
@@ -95,23 +96,22 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
             running_loss = 0.0
             running_corrects = 0
 
-            prefetcher = data_prefetcher(dataloaders[phase])
-            data = prefetcher.next()
-            it = 0
+            now_dataloader = dataloaders[phase]
+            stop_it = now_dataloader._size
+            # it = 0
             
             # Iterate over data.
             # for it, temp in enumerate(dataloaders[phase]):
-            while data is not None:
-                img1, img2, img3, label1, label2, label3 = data
-                # inputs, labels = temp
-                img1 = img1.to(device)
-                img2 = img2.to(device)
-                img3 = img3.to(device)
-                label1 = label1.to(device)
-                label2 = label2.to(device)
-                label3 = label3.to(device)
+            for it, data in enumerate(now_dataloader):
 
+                img1 = data[0]['target_jpegs']
+                label1 = data[0]['target_labels'].squeeze()
+                img2 = data[0]['pos_jpegs']
+                label2 = data[0]['pos_labels'].squeeze()
+                img3 = data[0]['neg_jpegs']
+                label3 = data[0]['neg_labels'].squeeze()
                 st = time.clock()
+
                 # zero the parameter gradients
                 optimizer.zero_grad()
 
@@ -196,24 +196,20 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                             epoch, 
                             int(num_epochs),
                             it, 
-                            len(dataloaders[phase]), 
-                            it_cost_time * (len(dataloaders[phase]) - it+1) / 60, 
+                            dataloaders[phase]._size // train_cfg.batch_size, 
+                            it_cost_time * (dataloaders[phase]._size // train_cfg.batch_size - it+1) / 60, 
                             running_loss / (it+1),
                             now_acc ) )
-                    # print(img1.device)
+                    
                     img_1 = tensor2img(img1, normal=True)
                     vis.img('pred1 img', img_1)
+
+                    t_pred = F.softmax(output1, 1)[0]
+                    show_id = t_pred.argmax().cpu().item()
+                    conf = t_pred[t_pred.argmax()].cpu().item()
+
                     if id_name_map:
-                        t_pred = F.softmax(output1, 1)[0]
-                        show_id = t_pred.argmax().cpu().item()
-                        conf = t_pred[t_pred.argmax()].cpu().item()
-
-
-                        # conf, _ = torch.max(output1, 1)
-                        # conf = conf.cpu()[0]
-
-                        # show_id = preds1.to('cpu').numpy()[0]
-                        # conf = output1[0][show_id].cpu().item()
+                        
                         if show_id in id_name_map.keys():
                             show_id = id_name_map[show_id]
                         vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id, conf))
@@ -222,15 +218,12 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
 
                     img_2 = tensor2img(img2, normal=True)
                     vis.img('pred2 img', img_2)
-                    if id_name_map:
-                        t_pred = F.softmax(output2, 1)[0]
-                        show_id = t_pred.argmax().cpu().item()
-                        conf = t_pred[t_pred.argmax()].cpu().item()
-                        # conf, _ = torch.max(output1, 1)
-                        # conf = conf.cpu()[0]
 
-                        # show_id = preds2.to('cpu').numpy()[0]
-                        # conf = output2[0][show_id].cpu().item()
+                    t_pred = F.softmax(output2, 1)[0]
+                    show_id = t_pred.argmax().cpu().item()
+                    conf = t_pred[t_pred.argmax()].cpu().item()
+                    if id_name_map:
+                        
                         if show_id in id_name_map.keys():
                             show_id = id_name_map[show_id]
                         vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id, conf))
@@ -239,10 +232,12 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     
                     img_3 = tensor2img(img3, normal=True)
                     vis.img('pred3 img', img_3)
+
+                    t_pred = F.softmax(output3, 1)[0]
+                    show_id = t_pred.argmax().cpu().item()
+                    conf = t_pred[t_pred.argmax()].cpu().item()
                     if id_name_map:
-                        t_pred = F.softmax(output3, 1)[0]
-                        show_id = t_pred.argmax().cpu().item()
-                        conf = t_pred[t_pred.argmax()].cpu().item()
+                        
                         if show_id in id_name_map.keys():
                             show_id = id_name_map[show_id]
                         vis.img('pred3 result', get_show_result_img(id_name_map[label3.to('cpu').numpy()[0]], show_id, conf))
@@ -256,7 +251,7 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     # vis.img('pos distance', get_show_result_img(0, F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
                     # vis.img('neg distance', get_show_result_img(1, F.pairwise_distance(feature1[0].unsqueeze(0), feature3[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
 
-                if it % save_step == 0 and phase == 'train':
+                if it == stop_it and phase == 'train':
                     if not os.path.exists('%s'%(save_base_path)):
                         os.mkdir('%s'%(save_base_path))
                     save_checkpoint(model, optimizer, epoch, '%s/epoch_%d.pth'%(save_base_path, epoch))
@@ -266,15 +261,11 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                     elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
                         torch.save(addCrit[0].state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
                     # torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
-                
-                data = prefetcher.next()
-                it += 1
-                if it == len(dataloaders[phase]):
-                    it = 0
                     break
 
-            epoch_loss = running_loss / len(dataloaders[phase].dataset)
-            epoch_acc = running_corrects.double() / (len(dataloaders[phase].dataset) * 3)
+
+            epoch_loss = running_loss / (dataloaders[phase]._size)
+            epoch_acc = running_corrects.double() / (dataloaders[phase]._size * 3)
 
             adjust_lr.step(epoch_loss)
 
@@ -378,7 +369,6 @@ if __name__ == "__main__":
             pass
         else:
             model_p = nn.DataParallel(model_ft, device_ids=train_cfg.gpu_ids)
-    
     if train_cfg.resume_from_path:
         print("resume from %s"%(train_cfg.resume_from_path))
         # model_p.load_state_dict(torch.load(train_cfg.resume_from_path))
@@ -406,26 +396,19 @@ if __name__ == "__main__":
     elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
         add_crit = [COCOLoss(train_cfg.class_num), CenterLoss(train_cfg.class_num)]
 
-
+    out_map = ['target_jpegs', 'target_labels', 'pos_jpegs', 'pos_labels', 'neg_jpegs', 'neg_labels']
     dataloaders = {}
     # data_samplers = {}
-    train_dataset = ClassifyDataset(base_data_path=train_cfg.train_datasets_bpath, train=True, transform = data_transforms['train'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
-    test_dataset = ClassifyDataset(base_data_path=train_cfg.test_datasets_bpath, train=False,transform = data_transforms['val'], read_mode=train_cfg.dataLoader_util, id_name_path=train_cfg.id_name_txt, device=device, little_train=False)
-    # if train_cfg.dist_training:
-    #     data_samplers['train'] = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        # data_samplers['test'] = torch.utils.data.distributed.DistributedSampler(test_dataset)
-    train_loader = DataLoader(train_dataset,batch_size=train_cfg.batch_size, shuffle=True, num_workers=train_cfg.worker_numbers, pin_memory=True)# , sampler=data_samplers['train']
-    test_loader = DataLoader(test_dataset,batch_size=train_cfg.batch_size,shuffle=False, num_workers=train_cfg.worker_numbers, pin_memory=True)# , sampler=data_samplers['test']
-    id_name_map = train_dataset.id_name_map
-    data_len = int(len(test_dataset) / train_cfg.batch_size)
-    logger.info('the dataset has %d images' % (len(train_dataset)))
+    train_loader = get_dataloader(CustomTripletIterator, TripletPipeline, out_map, train_cfg, True, args.local_rank)
+    test_loader = get_dataloader(CustomTripletIterator, TripletPipeline, out_map, train_cfg, False, args.local_rank)
+    logger.info('the dataset has %d images' % (train_loader._pipes[0].dataset.n))
     logger.info('the batch_size is %d' % (train_cfg.batch_size))
 
     dataloaders['train']=train_loader
     dataloaders['test']=test_loader
     model_p.train()
     # Train and evaluate
-    train_model(model_p, dataloaders, criterion, add_crit, optimizer_ft, train_cfg, logger=logger, vis=my_vis, rename_map=id_name_map, id_name_map=id_name_map)
+    train_model(model_p, dataloaders, criterion, add_crit, optimizer_ft, train_cfg, logger=logger, vis=my_vis)
 
        
     

@@ -14,6 +14,7 @@
   * if train with focal loss, change `use_focal_loss` = `True`
 * run `nohup python -m visdom.server &` on linux shell then goto `localhost:8097` to see your model visual output
 * then run `python train.py` to train ~~or run `fast_train.py` to train with `DALI` that `3x~20x`(still debuging only support single GPU now) faster than `pytorch dataloader`~~
+* `DALI` speed up training support `Triplet Model`, if you have 2 GPU card, here's example:`python -m torch.distributed.launch --nproc_per_node=2 fast_triplet_train.py` change `--nproc_per_node=n` if you have n GPU card.
 
 ### Triplet-Network
 * modify `triplet_train_config.py` reference `Siamese-Network`

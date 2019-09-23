@@ -107,7 +107,7 @@ class SiamesePipeline(Pipeline):
         self.decode = ops.ImageDecoder(device = 'cpu', output_type = types.BGR)
         self.resize_op = ops.Resize(resize_longer=cfg.input_size)
 
-        self.paste_ratio = ops.Uniform(range=(9, 12))
+        self.paste_ratio = ops.Uniform(range=(22, 25))
         self.paste = ops.Paste(device="gpu", fill_value=(255,255,255))
         # self.crop = ops.Crop(device ='gpu', crop=[224, 224])
         output_dtype = types.FLOAT16 if cfg.fp16_using else types.FLOAT
@@ -250,7 +250,7 @@ class TripletPipeline(Pipeline):
         self.decode = ops.ImageDecoder(device = 'cpu', output_type = types.BGR)
         self.resize_op = ops.Resize(resize_longer=cfg.input_size)
 
-        self.paste_ratio = ops.Uniform(range=(9, 12))
+        self.paste_ratio = ops.Uniform(range=(11, 15))
         self.paste = ops.Paste(device="gpu", fill_value=(255,255,255))
         # self.crop = ops.Crop(device ='gpu', crop=[224, 224])
         output_dtype = types.FLOAT16 if cfg.fp16_using else types.FLOAT

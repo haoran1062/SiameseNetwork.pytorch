@@ -79,9 +79,12 @@ def convert_show_cls_bar_data(acc_map, out_path, rename_map=None):
             f.write(t_str + '\n')
 
             mAP += acc_map[k][0]/(acc_map[k][0] + acc_map[k][1])
-        mAP /= len(kl)
-        print('*'*20, 'mAP is : %.5f'%(mAP), '*'*20)
-        f.write('*'*20 + 'mAP is : %.5f'%(mAP) + '*'*20)
+        if len(kl) != 0:
+            mAP /= len(kl)
+            print('*'*20, 'mAP is : %.5f'%(mAP), '*'*20)
+            f.write('*'*20 + 'mAP is : %.5f'%(mAP) + '*'*20)
+        else:
+            print('kl len is 0!!!')
 
         leg_l = ['right', 'wrong']
     return acc_np, leg_l, name_l

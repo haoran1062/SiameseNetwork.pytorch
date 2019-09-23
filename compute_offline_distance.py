@@ -19,7 +19,7 @@ from torchsummary import summary
 from dataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
 from ContrastiveLoss import ContrastiveLoss
-from eval_config import Config
+from triplet_eval_config import Config
 import torch.nn.functional as F
 from tqdm import tqdm
 from random import shuffle
@@ -40,6 +40,10 @@ def get_label_from_path(in_path):
 
 def get_id_map(in_file):
     id_name_map = {}
+    if not os.path.exists(in_file):
+        for i in range(1, 3001):
+            id_name_map[i] = str(i)
+        return id_name_map
     
     with open(in_file, 'r') as f:
         itt = 0
@@ -93,11 +97,12 @@ if __name__ == "__main__":
 
     # net = SiameseNetwork(cfg)
     net = load_siamese_model(cfg)
-    batch_size = 400
+    batch_size = 256
     # print(net)
     net.eval()
     id_name_map = get_id_map(cfg.id_name_txt)
-    
+    id_name_map = {}
+
     with torch.no_grad():
         
         for now_folder_name in tqdm(folder_list[:]):

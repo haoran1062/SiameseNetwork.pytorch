@@ -17,12 +17,13 @@ class Config(object):
     feature_extract = False
     use_pre_train = False
     input_3x3 = True
-    resume_from_path = "/data/haoran/t/se-resnext50_448_0911/best.pth"
+    model_bpath = '/data/train_models/classify_models/triplet_models/%s_%d_0918'%(backbone_type, input_size)
+    resume_from_path = "%s/best.pth"%(model_bpath)
     fp16_using = True
     random_shuffle = True
     resume_epoch = 0
     epoch_num = 8
-    model_bpath = '/data/haoran/t/%s_%d_0911'%(backbone_type, input_size)
+    # model_bpath = '/data/haoran/t/%s_%d_0911'%(backbone_type, input_size)
     id_name_txt = model_bpath + '/id.txt'
     log_name = 'train.log'
     vis_log = model_bpath + '/vis.log'

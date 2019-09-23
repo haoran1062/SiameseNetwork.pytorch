@@ -16,7 +16,7 @@ from utils.data_utils import *
 from utils.train_utils import *
 from utils.visual import Visual
 from torchsummary import summary
-from TripletDataLoader import ClassifyDataset
+# from TripletDataLoader import ClassifyDataset
 from SiameseNet import SiameseNetwork
 from TripletLoss import TripletLoss
 from CenterLoss import CenterLoss
@@ -82,6 +82,7 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
         
+
         acc_map = {}
         # cosin_lr.step(epoch)
         my_vis.plot('lr', optimizer.param_groups[0]['lr'])
@@ -97,9 +98,8 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
             running_corrects = 0
 
             now_dataloader = dataloaders[phase]
-            stop_it = now_dataloader._size
+            stop_it = now_dataloader._size // train_cfg.batch_size
             # it = 0
-            
             # Iterate over data.
             # for it, temp in enumerate(dataloaders[phase]):
             for it, data in enumerate(now_dataloader):
@@ -161,6 +161,7 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                         optimizer.step()
                 
 
+                
                 # statistics
                 now_loss = now_total_loss.item() # * img1.size(0)
                 running_loss += now_loss
@@ -168,137 +169,144 @@ def train_model(model, dataloaders, criterion, addCrit, optimizer, train_cfg, sa
                 _, preds1 = torch.max(output1, 1)
                 _, preds2 = torch.max(output2, 1)
                 _, preds3 = torch.max(output3, 1)
-                now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data) + torch.sum(preds3 == label3.data)
-                # print(now_correct)
-                running_corrects += now_correct
+                if str(preds1.device) == 'cuda:0':    
+                    now_correct = torch.sum(preds1 == label1.data) + torch.sum(preds2 == label2.data) + torch.sum(preds3 == label3.data)
+                    # print(now_correct)
+                    running_corrects += now_correct
 
-                if phase == 'test':
-                    p_l = preds1.data.tolist()
-                    gt_l = label1.data.tolist()
-                    for tij in range(len(p_l)):
-                        t_gt = gt_l[tij]
-                        if t_gt not in acc_map.keys():
-                            acc_map[t_gt] = [0, 0]
-                        if t_gt == p_l[tij]:
-                            acc_map[t_gt][0] += 1
+                    if phase == 'test':
+                        p_l = preds1.data.tolist()
+                        gt_l = label1.data.tolist()
+                        for tij in range(len(p_l)):
+                            t_gt = gt_l[tij]
+                            if t_gt not in acc_map.keys():
+                                acc_map[t_gt] = [0, 0]
+                            if t_gt == p_l[tij]:
+                                acc_map[t_gt][0] += 1
+                            else:
+                                acc_map[t_gt][1] += 1
+
+                    ed = time.clock()
+                    it_cost_time = ed - st
+                    
+                    if it % 10 == 0:
+                        # convert_show_cls_bar_data(acc_map, rename_map=rename_map)
+                        now_acc = float(now_correct) / (len(preds1)*3.0)
+
+                        # if phase == 'train':
+                        logger.info('{} Epoch [{}/{}], Iter [{}/{}] expect end in {:4f} min.  average_loss: {:2f}, acc: {:2f}'.format(
+                                phase,
+                                epoch, 
+                                int(num_epochs),
+                                it, 
+                                dataloaders[phase]._size // train_cfg.batch_size, 
+                                it_cost_time * (dataloaders[phase]._size // train_cfg.batch_size - it+1) / 60, 
+                                running_loss / (it+1),
+                                now_acc ) )
+                        
+                        img_1 = tensor2img(img1, normal=True)
+                        vis.img('pred1 img', img_1)
+
+                        t_pred = F.softmax(output1, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+
+                        if id_name_map:
+                            
+                            if show_id in id_name_map.keys():
+                                show_id = id_name_map[show_id]
+                            vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id, conf))
                         else:
-                            acc_map[t_gt][1] += 1
+                            vis.img('pred1 result', get_show_result_img(label1.to('cpu').numpy()[0], preds1.to('cpu').numpy()[0], conf))
 
-                ed = time.clock()
-                it_cost_time = ed - st
-                
-                if it % 10 == 0:
-                    # convert_show_cls_bar_data(acc_map, rename_map=rename_map)
-                    now_acc = float(now_correct) / (len(preds1)*3.0)
+                        img_2 = tensor2img(img2, normal=True)
+                        vis.img('pred2 img', img_2)
 
-                    if phase == 'train':
-                        logger.info('Epoch [{}/{}], Iter [{}/{}] expect end in {:4f} min.  average_loss: {:2f}, acc: {:2f}'.format(
-                            epoch, 
-                            int(num_epochs),
-                            it, 
-                            dataloaders[phase]._size // train_cfg.batch_size, 
-                            it_cost_time * (dataloaders[phase]._size // train_cfg.batch_size - it+1) / 60, 
-                            running_loss / (it+1),
-                            now_acc ) )
-                    
-                    img_1 = tensor2img(img1, normal=True)
-                    vis.img('pred1 img', img_1)
-
-                    t_pred = F.softmax(output1, 1)[0]
-                    show_id = t_pred.argmax().cpu().item()
-                    conf = t_pred[t_pred.argmax()].cpu().item()
-
-                    if id_name_map:
+                        t_pred = F.softmax(output2, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+                        if id_name_map:
+                            
+                            if show_id in id_name_map.keys():
+                                show_id = id_name_map[show_id]
+                            vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id, conf))
+                        else:
+                            vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0], conf))
                         
-                        if show_id in id_name_map.keys():
-                            show_id = id_name_map[show_id]
-                        vis.img('pred1 result', get_show_result_img(id_name_map[label1.to('cpu').numpy()[0]], show_id, conf))
-                    else:
-                        vis.img('pred1 result', get_show_result_img(label1.to('cpu').numpy()[0], preds1.to('cpu').numpy()[0], conf))
-
-                    img_2 = tensor2img(img2, normal=True)
-                    vis.img('pred2 img', img_2)
-
-                    t_pred = F.softmax(output2, 1)[0]
-                    show_id = t_pred.argmax().cpu().item()
-                    conf = t_pred[t_pred.argmax()].cpu().item()
-                    if id_name_map:
+                        img_3 = tensor2img(img3, normal=True)
+                        vis.img('pred3 img', img_3)
+                        t_pred = F.softmax(output3, 1)[0]
+                        show_id = t_pred.argmax().cpu().item()
+                        conf = t_pred[t_pred.argmax()].cpu().item()
+                        if id_name_map:
+                            
+                            if show_id in id_name_map.keys():
+                                show_id = id_name_map[show_id]
+                            vis.img('pred3 result', get_show_result_img(id_name_map[label3.to('cpu').numpy()[0]], show_id, conf))
+                        else:
+                            vis.img('pred3 result', get_show_result_img(label3.to('cpu').numpy()[0], preds3.to('cpu').numpy()[0], conf))
                         
-                        if show_id in id_name_map.keys():
-                            show_id = id_name_map[show_id]
-                        vis.img('pred2 result', get_show_result_img(id_name_map[label2.to('cpu').numpy()[0]], show_id, conf))
-                    else:
-                        vis.img('pred2 result', get_show_result_img(label2.to('cpu').numpy()[0], preds2.to('cpu').numpy()[0], conf))
-                    
-                    img_3 = tensor2img(img3, normal=True)
-                    vis.img('pred3 img', img_3)
-
-                    t_pred = F.softmax(output3, 1)[0]
-                    show_id = t_pred.argmax().cpu().item()
-                    conf = t_pred[t_pred.argmax()].cpu().item()
-                    if id_name_map:
+                        # print(feature1.shape)  .pow(2).sum(1)
+                        vis.img('pos distance', get_show_result_img(0, (feature1[0].unsqueeze(0) - feature2[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
+                        vis.img('neg distance', get_show_result_img(1, (feature1[0].unsqueeze(0) - feature3[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
                         
-                        if show_id in id_name_map.keys():
-                            show_id = id_name_map[show_id]
-                        vis.img('pred3 result', get_show_result_img(id_name_map[label3.to('cpu').numpy()[0]], show_id, conf))
-                    else:
-                        vis.img('pred3 result', get_show_result_img(label3.to('cpu').numpy()[0], preds3.to('cpu').numpy()[0], conf))
-                    
-                    # print(feature1.shape)  .pow(2).sum(1)
-                    vis.img('pos distance', get_show_result_img(0, (feature1[0].unsqueeze(0) - feature2[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
-                    vis.img('neg distance', get_show_result_img(1, (feature1[0].unsqueeze(0) - feature3[0].unsqueeze(0)).pow(2).sum(1).detach().to('cpu').numpy()[0]))
+                        # vis.img('pos distance', get_show_result_img(0, F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
+                        # vis.img('neg distance', get_show_result_img(1, F.pairwise_distance(feature1[0].unsqueeze(0), feature3[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
 
-                    # vis.img('pos distance', get_show_result_img(0, F.pairwise_distance(feature1[0].unsqueeze(0), feature2[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
-                    # vis.img('neg distance', get_show_result_img(1, F.pairwise_distance(feature1[0].unsqueeze(0), feature3[0].unsqueeze(0)).detach().to('cpu').numpy()[0]))
+                    if (it == stop_it or it % save_step == 0) and phase == 'train':
+                        if not os.path.exists('%s'%(save_base_path)):
+                            os.mkdir('%s'%(save_base_path))
+                        save_checkpoint(model, optimizer, epoch, '%s/epoch_%d.pth'%(save_base_path, epoch))
+                        if  train_cfg.additive_loss_type == 'COCOLoss':
+                            torch.save(addCrit.state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
 
-                if it == stop_it and phase == 'train':
-                    if not os.path.exists('%s'%(save_base_path)):
-                        os.mkdir('%s'%(save_base_path))
-                    save_checkpoint(model, optimizer, epoch, '%s/epoch_%d.pth'%(save_base_path, epoch))
-                    if  train_cfg.additive_loss_type == 'COCOLoss':
-                        torch.save(addCrit.state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
-
-                    elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
-                        torch.save(addCrit[0].state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
-                    # torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
-                    break
-
-
+                        elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+                            torch.save(addCrit[0].state_dict(), '%s/epoch_%d_COCOCrit.pth'%(save_base_path, epoch))
+                        # torch.save(model.state_dict(), '%s/epoch_%d.pth'%(save_base_path, epoch))
+                    # if it == stop_it:
+                    #     break
+            # if phase == 'train':
             epoch_loss = running_loss / (dataloaders[phase]._size)
-            epoch_acc = running_corrects.double() / (dataloaders[phase]._size * 3)
-
-            adjust_lr.step(epoch_loss)
 
             if phase == 'train':
-                my_vis.plot('train loss', epoch_loss)
-                my_vis.plot('train acc', epoch_acc.item())
+                adjust_lr.step(epoch_loss)
 
-            elif phase == 'test':
-                my_vis.plot('test loss', epoch_loss)
-                my_vis.plot('test acc', epoch_acc.item())
+            if str(preds1.device) == 'cuda:0':                    
+                if not isinstance(running_corrects, float):
+                    running_corrects = running_corrects.item()
+                epoch_acc = float(running_corrects) / (dataloaders[phase]._size * 3)
 
-                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/meanAcc.txt', rename_map=rename_map)
-                my_vis.multi_cls_bar('every class Acc', acc_x, leg_l, name_l)
+                if phase == 'train':
+                    
+                    my_vis.plot('train loss', epoch_loss)
+                    my_vis.plot('train acc', epoch_acc)
 
 
-            # deep copy the model
-            if phase == 'test' and epoch_acc > best_acc:
-                best_model_wts = copy.deepcopy(model.state_dict())
-                if  train_cfg.additive_loss_type == 'COCOLoss':
-                    best_coco_crit_w = copy.deepcopy(addCrit.state_dict())
-                elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
-                    best_coco_crit_w = copy.deepcopy(addCrit[0].state_dict())
-                
-                # model.load_state_dict(best_model_wts)
-                # torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
-                if best_coco_crit_w is not None:
-                    torch.save(best_coco_crit_w, '%s/best_COCOCrit.pth'%(save_base_path))
-                save_checkpoint(model, optimizer, epoch, '%s/best.pth'%(save_base_path))
+                elif phase == 'test':
 
-                best_acc = epoch_acc
-                acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/best_meanAcc.txt', rename_map=rename_map)
-            if phase == 'test':
-                pass
+                    my_vis.plot('test loss', epoch_loss)
+                    my_vis.plot('test acc', epoch_acc)
+
+                    acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/meanAcc.txt', rename_map=rename_map)
+                    my_vis.multi_cls_bar('every class Acc', acc_x, leg_l, name_l)
+
+                    # deep copy the model
+                    if epoch_acc > best_acc:
+                        best_model_wts = copy.deepcopy(model.state_dict())
+                        if  train_cfg.additive_loss_type == 'COCOLoss':
+                            best_coco_crit_w = copy.deepcopy(addCrit.state_dict())
+                        elif train_cfg.additive_loss_type == 'COCOLoss&CenterLoss':
+                            best_coco_crit_w = copy.deepcopy(addCrit[0].state_dict())
+                        
+                        # model.load_state_dict(best_model_wts)
+                        # torch.save(model.state_dict(), '%s/best.pth'%(save_base_path))
+                        if best_coco_crit_w is not None:
+                            torch.save(best_coco_crit_w, '%s/best_COCOCrit.pth'%(save_base_path))
+                        save_checkpoint(model, optimizer, epoch, '%s/best.pth'%(save_base_path))
+
+                        best_acc = epoch_acc
+                        acc_x, leg_l, name_l = convert_show_cls_bar_data(acc_map, save_base_path+'/best_meanAcc.txt', rename_map=rename_map)
+
 
     time_elapsed = time.time() - since
     logger.info('finish training using %.2fs'%(time_elapsed))
@@ -356,7 +364,8 @@ if __name__ == "__main__":
 
     # Initialize the model for this run
     model_ft = SiameseNetwork(train_cfg).to(device)
-    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 3 / 256.0, momentum=0.9)
+    # optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 3 / 256.0, momentum=0.9)
+    optimizer_ft = optim.Adam(model_ft.parameters())
     if fp16_using:
         model_ft, optimizer_ft = amp.initialize(model_ft, optimizer_ft, opt_level='O1', loss_scale=128.0)
         if train_cfg.dist_training:

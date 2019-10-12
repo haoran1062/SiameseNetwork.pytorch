@@ -17,8 +17,9 @@ class Config(object):
     feature_extract = False
     use_pre_train = False
     input_3x3 = True
-    model_bpath = '/data/train_models/classify_models/triplet_models/%s_%d_0918'%(backbone_type, input_size)
+    model_bpath = '/data/train_models/classify_models/triplet_models/%s_%d_0924'%(backbone_type, input_size)
     resume_from_path = "%s/best.pth"%(model_bpath)
+    # resume_from_path = "%s/epoch_5.pth"%(model_bpath)
     fp16_using = True
     random_shuffle = True
     resume_epoch = 0
@@ -30,7 +31,7 @@ class Config(object):
 
     gpu_ids = [0]
     batch_size = 1
-    class_num = 3000
+    class_num = 8000
     same_cate_prob = 0.5
     dataLoader_util = 'cv2' # cv2, PIL or jpeg4py (jpeg4py is faster) 
     worker_numbers = 4

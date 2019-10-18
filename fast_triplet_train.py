@@ -321,8 +321,6 @@ def save_checkpoint(model, optimizer, epoch, save_path):
 def load_checkpoint(model, optimizer, load_path):
     checkpoint = torch.load(load_path)
     model.load_state_dict(checkpoint['net'])
-    if optimizer is None:
-        return model, 0
     optimizer.load_state_dict(checkpoint['optimizer'])
     start_epoch = checkpoint['epoch'] + 1
     return model, optimizer, start_epoch
@@ -366,8 +364,8 @@ if __name__ == "__main__":
 
     # Initialize the model for this run
     model_ft = SiameseNetwork(train_cfg).to(device)
-    optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 3 / 256.0, momentum=0.9)
-    # optimizer_ft = optim.Adam(model_ft.parameters())
+    # optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.1 * train_cfg.batch_size * 3 / 256.0, momentum=0.9)
+    optimizer_ft = optim.Adam(model_ft.parameters())
     if fp16_using:
         model_ft, optimizer_ft = amp.initialize(model_ft, optimizer_ft, opt_level='O1', loss_scale=128.0)
         if train_cfg.dist_training:
@@ -384,7 +382,6 @@ if __name__ == "__main__":
         print("resume from %s"%(train_cfg.resume_from_path))
         # model_p.load_state_dict(torch.load(train_cfg.resume_from_path))
         model_p, optimizer_ft, train_cfg.resume_epoch = load_checkpoint(model_p, optimizer_ft, train_cfg.resume_from_path)
-        # model_p, train_cfg.resume_epoch = load_checkpoint(model_p, None, train_cfg.resume_from_path)
 
     logger = create_logger(train_cfg.model_bpath, train_cfg.log_name)
 

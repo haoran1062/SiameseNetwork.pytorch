@@ -3,7 +3,7 @@ import os, cv2, torch, time, numpy as np
 from glob import glob 
 
 from tqdm import tqdm
-from random import shuffle, randint
+from random import shuffle, randint, uniform
 import nvidia.dali.ops as ops 
 import nvidia.dali.types as types
 from nvidia.dali.pipeline import Pipeline
@@ -236,7 +236,7 @@ class CustomTripletIterator(object):
 
 class TripletPipeline(Pipeline):
 
-    def __init__(self, cfg, root_dir, batch_size, num_threads, device_id=0):
+    def __init__(self, cfg, root_dir, batch_size, num_threads, device_id=0, is_train=True):
         super(TripletPipeline, self).__init__(batch_size, num_threads, device_id, seed=12)
         self.input_target_images = ops.ExternalSource()
         self.input_target_labels = ops.ExternalSource()
@@ -246,9 +246,10 @@ class TripletPipeline(Pipeline):
         self.input_neg_labels = ops.ExternalSource()
         self.dataset = CustomTripletIterator(batch_size, root_dir, cfg.random_shuffle)
         self.iterator = iter(self.dataset)
+        self.is_train = is_train
 
-        self.decode = ops.ImageDecoder(device = 'cpu', output_type = types.BGR)
-        self.resize_op = ops.Resize(resize_longer=cfg.input_size)
+        self.decode = ops.ImageDecoder(device = 'mixed', output_type = types.BGR)
+        self.resize_op = ops.Resize(device='gpu', resize_longer=cfg.input_size)
 
         self.paste_ratio = ops.Uniform(range=(11, 15))
         self.paste = ops.Paste(device="gpu", fill_value=(255,255,255))
@@ -264,15 +265,63 @@ class TripletPipeline(Pipeline):
             output_dtype=output_dtype,
             output_layout=types.NCHW,
             pad_output=False)
+        
+        self.rot_rand = (-30., 30.)
+        self.cont_rand = (0.5, 1.5)
+        self.bri_rand = (0.5, 1.5)
+        self.sat_rand = (0.5, 1.5)
+        self.hue_rand = (45., 55.)
+
+
+        self.augmentations = {}
+        self.augmentations["jitter"] = ops.Jitter(device = "gpu")
+        self.augmentations["water"] = ops.Water(device = "gpu")
+        # self.augmentations["shpere"] = ops.Sphere(device = "gpu")
+        self.augmentations["warpaffine"] = ops.WarpAffine(device = "gpu", matrix = [1.0, 0.8, 0.0, 0.0, 1.2, 0.0], use_image_center = True, interp_type = types.INTERP_LINEAR)
+        
+        # self.augmentations["paste"] = ops.Paste(device = "gpu", ratio = 2., fill_value = (55, 155, 155),
+        #                                     paste_x = .5, paste_y = .4)
+        # self.augmentations["resize"] = ops.Resize(device = "gpu", resize_shorter = 480)
+        self.augmentations["flip_v"] = ops.Flip(device = "gpu", vertical = 1, horizontal = 0)
+        self.augmentations["flip_h"] = ops.Flip(device = "gpu", vertical = 0, horizontal = 1)
+        # self.uniform = ops.Uniform(range = (0.0, 1.0))
+
+        self.aug_num_rad = (1, 3)
+        self.aug_prop = 100
+    
+    def aug(self, input_img):
+
+        rot_angle = uniform(self.rot_rand[0], self.rot_rand[1])
+        cont_un = uniform(self.cont_rand[0], self.cont_rand[1])
+        bri_un = uniform(self.bri_rand[0], self.bri_rand[1])
+        sat_un = uniform(self.sat_rand[0], self.sat_rand[1])
+        hue_un = uniform(self.hue_rand[0], self.hue_rand[1])
+        print(rot_angle)
+        self.augmentations["rotate"] = ops.Rotate(device = "gpu", angle = rot_angle, fill_value=255., interp_type = types.INTERP_LINEAR)
+        self.augmentations["contrast"] = ops.Contrast(device = "gpu", contrast = cont_un)
+        self.augmentations["brightness"] = ops.Brightness(device = "gpu", brightness = bri_un)
+        self.augmentations["saturation"] = ops.Saturation(device = "gpu", saturation = sat_un)
+        self.augmentations["hue"] = ops.Hue(device = "gpu", hue = hue_un)
+        now_n = randint(self.aug_num_rad[0], self.aug_num_rad[1])
+        
+        aug_list = list(self.augmentations.values())
+        shuffle(aug_list)
+        aug_list = aug_list[:now_n]
+
+        for now_aug in aug_list:
+            input_img = now_aug(input_img)
+        return input_img
 
     def define_graph(self):
         self.target_jpegs = self.input_target_images()
         self.target_labels = self.input_target_labels()
         target_images = self.decode(self.target_jpegs)
         target_images = self.resize_op(target_images)
+        if self.is_train and randint(0, 100) < self.aug_prop:
+            target_images = self.aug(target_images)
 
         ratio = self.paste_ratio()
-
+        # 
         target_images = self.paste(target_images.gpu(), ratio = ratio)
         target_images = self.normalize(target_images)
         # positive 
@@ -280,6 +329,9 @@ class TripletPipeline(Pipeline):
         self.pos_labels = self.input_pos_labels()
         pos_images = self.decode(self.pos_jpegs)
         pos_images = self.resize_op(pos_images)
+        if self.is_train and randint(0, 100) < self.aug_prop:
+            pos_images = self.aug(pos_images)
+        
 
         ratio = self.paste_ratio()
 
@@ -290,6 +342,10 @@ class TripletPipeline(Pipeline):
         self.neg_labels = self.input_neg_labels()
         neg_images = self.decode(self.neg_jpegs)
         neg_images = self.resize_op(neg_images)
+
+        if self.is_train and randint(0, 100) < self.aug_prop:
+            neg_images = self.aug(neg_images)
+        
 
         ratio = self.paste_ratio()
 
@@ -313,7 +369,7 @@ def get_dataloader(pipiter, pipline, output_map, cfg, is_train, device_id=0):
         root_dir = cfg.train_datasets_bpath
     else:
         root_dir = cfg.test_datasets_bpath
-    now_pipline = pipline(cfg, root_dir, cfg.batch_size, cfg.worker_numbers, device_id=device_id)
+    now_pipline = pipline(cfg, root_dir, cfg.batch_size, cfg.worker_numbers, device_id=device_id, is_train=is_train)
     dataloader = DALIGenericIterator(now_pipline, output_map, now_pipline.dataset.n , auto_reset=True)
     return dataloader
 
@@ -322,7 +378,8 @@ if __name__ == "__main__":
     # root_dir = '/data/datasets/truth_data/classify_data/201906-201907_checked/all'
     # root_dir = '/dev/shm/all'
     # file_list = 'train.txt'
-    from train_config import Config
+    # from train_config import Config
+    from triplet_train_config import Config
     cfg = Config()
     # thread_number = cfg.worker_numbers
     # batch_size = cfg.batch_size
@@ -331,11 +388,11 @@ if __name__ == "__main__":
     # same_cate_prob = cfg.same_cate_prob
     # random_shuffle = cfg.random_shuffle
     # device_id = 0
-    out_map = ['target_jpegs', 'target_labels', 'cmp_jpegs', 'cmp_labels', 'siamese_labels']
+    out_map = ['target_jpegs', 'target_labels', 'pos_jpegs', 'pos_labels', 'neg_jpegs', 'neg_labels']
     test_n = 10
 
-    dataloader = get_dataloader(CustomSiameseIterator, SiamesePipeline, out_map, cfg, True)
-
+    # dataloader = get_dataloader(CustomSiameseIterator, SiamesePipeline, out_map, cfg, True)
+    dataloader = get_dataloader(CustomTripletIterator, TripletPipeline, out_map, cfg, True, 0)
     # pipe = SiamesePipeline(batch_size, thread_number)
     # pipe.build()
 
@@ -344,27 +401,39 @@ if __name__ == "__main__":
     
     # for i in tqdm(range(test_n)):
     for it, data in enumerate(dataloader):
-        img = data[0]['target_jpegs']
-        label = data[0]['target_labels']
-        img = data[0]['cmp_jpegs']
-        label = data[0]['cmp_labels']
-        s_label = data[0]['siamese_labels']
+        # img = data[0]['target_jpegs']
+        # label = data[0]['target_labels']
+        # img = data[0]['cmp_jpegs']
+        # label = data[0]['cmp_labels']
+        # s_label = data[0]['siamese_labels']
 
-        print(img.shape, img.dtype, img.device, label.shape, label.dtype, label.device)
+        # print(img.shape, img.dtype, img.device, label.shape, label.dtype, label.device)
+
+        img1 = data[0]['target_jpegs']
+        label1 = data[0]['target_labels'].squeeze()
+        img2 = data[0]['pos_jpegs']
+        label2 = data[0]['pos_labels'].squeeze()
+        img3 = data[0]['neg_jpegs']
+        label3 = data[0]['neg_labels'].squeeze()
         # pipe_out = pipe.run()
         # img, label, img1, label1, s_label = pipe_out
         # np_label = np.array(label.as_tensor())
         # imgs = np.array(img.as_cpu().as_tensor())
         # np_label1 = np.array(label1.as_tensor())
+        # print(img1)
         # imgs1 = np.array(img1.as_cpu().as_tensor())
+        imgs1 = img1.cpu().numpy()
+        show_img = imgs1[0]
+        show_img = show_img.transpose(1, 2, 0)
+        print(show_img.shape, show_img.dtype, show_img[100,100])
         # siamese_l = s_label.as_tensor()
         # print(siamese_l)
         # print(imgs.shape)
         # print(img.as_cpu().at(1).shape)
         # cv2.imshow('img', imgs[0])
-        # cv2.imshow('img1', imgs1[0])
-        # if cv2.waitKey(10000)&0xFF == ord('q'):
-            # break
+        cv2.imshow('img1', show_img)
+        if cv2.waitKey(10000)&0xFF == ord('q'):
+            break
         if it > test_n:
             break
 
